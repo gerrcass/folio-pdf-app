@@ -132,9 +132,10 @@ export function PrintDialog({
           <strong>
             {requestedPages.length} {requestedPages.length === 1 ? 'page' : 'pages'}
           </strong>{' '}
-          · Letter/A4 sized to each PDF page
+          · PDF physical page size
           <div className="hint" style={{ marginTop: 2 }}>
-            Annotations are printed as they appear in the reader.
+            Annotations print as they appear in the reader. Choose “Fit to page” in the system dialog if your paper
+            differs from the PDF page size.
           </div>
         </div>
       </div>

@@ -101,7 +101,7 @@ await page.waitForTimeout(400);
 
 // Sign near the lower right.
 await page.getByRole('button', { name: 'Add a signature' }).click();
-await page.getByRole('tab', { name: 'Type' }).click();
+await page.getByRole('button', { name: 'Type' }).click();
 await page.getByRole('textbox', { name: 'Typed signature text' }).fill('Ada Lovelace');
 await page.screenshot({ path: path.join(outDir, 'signature-dialog.png') });
 await page.getByRole('button', { name: 'Continue to placement' }).click();

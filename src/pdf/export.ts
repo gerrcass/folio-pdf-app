@@ -3,6 +3,7 @@ import noteFontUrl from '../../assets/fonts/DejaVuSans.ttf?url';
 import {
   PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
   PDFString,
   StandardFonts,
@@ -318,7 +319,7 @@ function exportText(
         `${xAxis.x.toFixed(5)} ${xAxis.y.toFixed(5)} ${(-yAxisDown.x).toFixed(5)} ${(-yAxisDown.y).toFixed(
           5,
         )} ${tx.toFixed(3)} ${ty.toFixed(3)} Tm`,
-        `${PDFString.of(line)} Tj`,
+        `${font.encodeText(line).toString()} Tj`,
         'ET',
       ].join('\n');
     }),
@@ -334,10 +335,10 @@ function exportText(
       rect: bbox,
       appearance,
       extra: {
-        Contents: PDFString.of(annotation.text),
+        Contents: PDFHexString.fromText(annotation.text),
         C: [color.r, color.g, color.b],
         DA: PDFString.of(
-          `/F1 ${annotation.fontSize.toFixed(2)} Tf ${color.r.toFixed(3)} ${color.g.toFixed(
+          `/FolioNote ${annotation.fontSize.toFixed(2)} Tf ${color.r.toFixed(3)} ${color.g.toFixed(
             3,
           )} ${color.b.toFixed(3)} rg`,
         ),
@@ -415,7 +416,7 @@ function ensureFreeTextResources(pdfDoc: PDFDocument, font: PDFFont): void {
   }
   const dr = acroForm.lookupMaybe(PDFName.of('DR'), PDFDict) ?? context.obj({});
   const fontDict = dr.lookupMaybe(PDFName.of('Font'), PDFDict) ?? context.obj({});
-  fontDict.set(PDFName.of('F1'), font.ref);
+  fontDict.set(PDFName.of('FolioNote'), font.ref);
   dr.set(PDFName.of('Font'), fontDict);
   acroForm.set(PDFName.of('DR'), dr);
 }
@@ -456,8 +457,11 @@ export async function exportAnnotatedPdf(
     throw new ExportError('invalid', 'This PDF could not be prepared for export.');
   }
 
-  const font = await noteFont(pdfDoc);
-  ensureFreeTextResources(pdfDoc, font);
+  const hasTextNotes = annotations.some((annotation) => annotation.kind === 'text');
+  const font = hasTextNotes
+    ? await noteFont(pdfDoc)
+    : await pdfDoc.embedFont(StandardFonts.Helvetica);
+  if (hasTextNotes) ensureFreeTextResources(pdfDoc, font);
   const pages = pdfDoc.getPages();
   for (const annotation of annotations) {
     const page = pages[annotation.pageIndex];

@@ -1,6 +1,7 @@
 import { Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AboutDialog } from './components/AboutDialog';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { BrandMark } from './components/BrandMark';
 import { OpeningOverlay } from './components/OpeningOverlay';
 import { PasswordDialog } from './components/PasswordDialog';
@@ -77,6 +78,7 @@ export function App() {
   const [opening, setOpening] = useState<OpeningState | null>(null);
   const [picking, setPicking] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -231,7 +233,17 @@ export function App() {
           options.preferredSession ??
           remembered ??
           (persisted?.documentId === fingerprint ? persisted : null);
-        const annotations = await loadAnnotations(fingerprint);
+        let annotations: Awaited<ReturnType<typeof loadAnnotations>> = [];
+        let annotationsUnavailable = false;
+        try {
+          annotations = await loadAnnotations(fingerprint);
+        } catch {
+          annotationsUnavailable = true;
+          notify(
+            'Opened in reading-only mode because local annotations could not be read. Existing annotations will not be overwritten.',
+            'error',
+          );
+        }
         const recent: RecentDocument = {
           id: fingerprint,
           name: payload.name,
@@ -283,6 +295,7 @@ export function App() {
           annotations,
           initialSession,
           openedAt: Date.now(),
+          annotationsUnavailable,
         });
         setView('reader');
         performance.mark('folio:reader:ready');
@@ -490,7 +503,7 @@ export function App() {
   const closeToLibrary = useCallback(async () => {
     const handle = readerRef.current;
     try {
-      if (handle) {
+      if (handle && !opened?.annotationsUnavailable) {
         await handle.flush();
         const snapshot = handle.getSession() ?? sessionRef.current;
         if (snapshot) {
@@ -507,10 +520,11 @@ export function App() {
     } catch (error) {
       notify(
         error instanceof Error
-          ? `Folio could not save your annotations: ${error.message}. Export the document before leaving.`
-          : 'Folio could not save your annotations. Export the document before leaving.',
+          ? `Folio could not save your annotations: ${error.message}`
+          : 'Folio could not save your annotations.',
         'error',
       );
+      setConfirmLeave(true);
       return;
     }
     setFocusMode(false);
@@ -518,7 +532,7 @@ export function App() {
     openDocumentIdRef.current = null;
     setDirty(false);
     setView('library');
-  }, [notify]);
+  }, [notify, opened]);
 
   useEffect(() => {
     return onBeforeClose(() => {
@@ -715,6 +729,23 @@ export function App() {
         documentName={passwordPrompt?.documentName ?? ''}
         onSubmit={resolvePassword}
         onCancel={() => resolvePassword(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmLeave}
+        title="Leave without saving?"
+        message="Folio could not save the latest annotation changes. You can stay and retry, export the document, or leave now and risk losing those changes."
+        confirmLabel="Leave without saving"
+        danger
+        onCancel={() => setConfirmLeave(false)}
+        onConfirm={() => {
+          setConfirmLeave(false);
+          setFocusMode(false);
+          setOpened(null);
+          openDocumentIdRef.current = null;
+          setDirty(false);
+          setView('library');
+        }}
       />
 
       <AboutDialog

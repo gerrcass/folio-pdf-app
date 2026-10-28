@@ -157,7 +157,7 @@ export async function drawInk(page: Page, pageIndex: number): Promise<void> {
 export async function addTypedSignature(page: Page, text = 'Ada Lovelace'): Promise<void> {
   await page.getByRole('button', { name: 'Add a signature' }).click();
   await expect(page.locator('dialog[open] .modal-title')).toHaveText('Add a visual signature');
-  await page.getByRole('tab', { name: 'Type' }).click();
+  await page.getByRole('button', { name: 'Type' }).click();
   await page.getByRole('textbox', { name: 'Typed signature text' }).fill(text);
   await page.getByRole('button', { name: 'Continue to placement' }).click();
   await expect(page.locator('.signature-preview')).toBeVisible();

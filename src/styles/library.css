@@ -315,7 +315,7 @@
 }
 
 .recent-remove:hover {
-  background: var(--danger);
+  background: var(--danger-solid);
   color: #fff;
   border-color: var(--danger);
 }

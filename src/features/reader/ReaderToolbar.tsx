@@ -73,6 +73,7 @@ interface ReaderToolbarProps {
   onInfo: () => void;
   onOpenFile: () => void;
   onAbout: () => void;
+  readOnly?: boolean;
 }
 
 function usePopover(onClose: () => void, open: boolean) {
@@ -111,7 +112,7 @@ function Popover({
     <div
       className={`popover ${className}`}
       style={align === 'right' ? { right: 0, left: 'auto' } : undefined}
-      role="menu"
+      role="group"
     >
       {children}
     </div>
@@ -126,6 +127,7 @@ function ToolButton({
   children,
   expanded,
   dot,
+  disabled,
 }: {
   active?: boolean;
   label: string;
@@ -134,6 +136,7 @@ function ToolButton({
   children: ReactNode;
   expanded?: boolean;
   dot?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -142,6 +145,7 @@ function ToolButton({
       aria-label={label}
       aria-pressed={active}
       aria-expanded={expanded}
+      disabled={disabled}
       data-tooltip={shortcut ? `${label}  ${shortcut}` : label}
       type="button"
     >
@@ -224,6 +228,7 @@ export function ReaderToolbar({
   onInfo,
   onOpenFile,
   onAbout,
+  readOnly = false,
 }: ReaderToolbarProps) {
   const [popover, setPopover] = useState<PopoverId>(null);
   const [pageField, setPageField] = useState(String(page + 1));
@@ -427,6 +432,7 @@ export function ReaderToolbar({
             expanded={popover === 'highlight'}
             onClick={() => activateTool('highlight', 'highlight')}
             dot={highlightHex}
+            disabled={readOnly}
           >
             <Highlighter size={15} />
           </ToolButton>
@@ -460,6 +466,7 @@ export function ReaderToolbar({
             expanded={popover === 'ink'}
             onClick={() => activateTool('ink', 'ink')}
             dot={inkColor}
+            disabled={readOnly}
           >
             <PenLine size={15} />
           </ToolButton>
@@ -490,6 +497,7 @@ export function ReaderToolbar({
             expanded={popover === 'text'}
             onClick={() => activateTool('text', 'text')}
             dot={textColor}
+            disabled={readOnly}
           >
             <Type size={15} />
           </ToolButton>
@@ -519,6 +527,7 @@ export function ReaderToolbar({
             setPopover(null);
             onOpenSignature();
           }}
+          disabled={readOnly}
           aria-label="Add a signature"
           data-tooltip="Add signature"
           type="button"
@@ -529,7 +538,7 @@ export function ReaderToolbar({
         <button
           className="icon-button"
           onClick={onUndo}
-          disabled={!canUndo}
+          disabled={!canUndo || readOnly}
           aria-label="Undo annotation change"
           data-tooltip="Undo"
           type="button"
@@ -539,7 +548,7 @@ export function ReaderToolbar({
         <button
           className="icon-button"
           onClick={onRedo}
-          disabled={!canRedo}
+          disabled={!canRedo || readOnly}
           aria-label="Redo annotation change"
           data-tooltip="Redo"
           type="button"

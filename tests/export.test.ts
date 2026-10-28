@@ -175,6 +175,48 @@ describe('native annotation export', () => {
     expect(quadPoints[0]).toBeLessThan(quadPoints[2]);
     expect(quadPoints[4]).toBeLessThan(quadPoints[6]);
   });
+
+  it('embeds a real Unicode font when the export font asset is available', async () => {
+    const fontBytes = fs.readFileSync('assets/fonts/DejaVuSans.ttf');
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(fontBytes, { status: 200, headers: { 'content-type': 'font/ttf' } })) as typeof fetch;
+    try {
+      const exported = await exportAnnotatedPdf(original, [
+        {
+          id: 'unicode-note',
+          kind: 'text',
+          pageIndex: 0,
+          color: '#1b1a17',
+          fontSize: 12,
+          quad: {
+            p0: { x: 100, y: 250 },
+            p1: { x: 340, y: 250 },
+            p2: { x: 340, y: 300 },
+            p3: { x: 100, y: 300 },
+          },
+          text: 'Café déjà vu — Привет',
+          createdAt: 3,
+          updatedAt: 3,
+        },
+      ]);
+      const pdf = await PDFDocument.load(exported);
+      const acroForm = pdf.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
+      const dr = acroForm.lookup(PDFName.of('DR'), PDFDict);
+      const fonts = dr.lookup(PDFName.of('Font'), PDFDict);
+      const noteFontRef = fonts.get(PDFName.of('FolioNote'));
+      const noteFont = pdf.context.lookup(noteFontRef as never) as unknown as PDFDict;
+      expect(noteFont.get(PDFName.of('Subtype'))?.toString()).toBe('/Type0');
+      expect(noteFont.get(PDFName.of('ToUnicode'))).toBeDefined();
+      const annot = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).get(0);
+      const annotation = pdf.context.lookup(annot as never) as unknown as PDFDict;
+      const contents = annotation.get(PDFName.of('Contents'));
+      expect(contents?.toString()).toContain('0043');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('is deterministic across repeated exports from the same source state', async () => {
     const first = await exportAnnotatedPdf(original, annotations);
     const second = await exportAnnotatedPdf(original, annotations);

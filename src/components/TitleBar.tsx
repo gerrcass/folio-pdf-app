@@ -51,18 +51,24 @@ export function TitleBar({
         windowControls('maximize');
       }}
     >
-      <button
-        className="titlebar-brand"
-        onClick={onHome}
-        aria-label={onHome ? 'Back to Library' : 'Folio'}
-        data-tooltip={onHome ? 'Back to Library' : undefined}
-        data-tooltip-position="bottom"
-        style={{ cursor: onHome ? 'pointer' : 'default' }}
-        type="button"
-      >
-        <BrandMark size={18} />
-        <span>Folio</span>
-      </button>
+      {onHome ? (
+        <button
+          className="titlebar-brand"
+          onClick={onHome}
+          aria-label="Back to Library"
+          data-tooltip="Back to Library"
+          data-tooltip-position="bottom"
+          type="button"
+        >
+          <BrandMark size={18} />
+          <span>Folio</span>
+        </button>
+      ) : (
+        <div className="titlebar-brand" aria-label="Folio">
+          <BrandMark size={18} />
+          <span>Folio</span>
+        </div>
+      )}
 
       {title ? (
         <div className="titlebar-context" aria-label={`Current document: ${title}`}>

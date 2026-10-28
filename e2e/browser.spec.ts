@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { PDFArray, PDFDict, PDFDocument, PDFName } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import {
   activateHighlight,
   activateInk,
@@ -101,6 +101,10 @@ test('search finds matches, navigates, and explains an empty result', async ({ p
   await page.getByRole('button', { name: '200%' }).click();
   await input.fill('Folio will still ask you');
   await expect(page.locator('.search-result').first()).toContainText('Folio will still ask you', { timeout: 20_000 });
+  await page.evaluate(() => {
+    const area = document.querySelector<HTMLElement>('.reading-area');
+    if (area) area.scrollLeft = 400;
+  });
   await page.locator('.search-result').first().click();
   await page.waitForTimeout(1200);
   await expect(page.locator('.page-input')).toHaveValue('10');
@@ -110,6 +114,8 @@ test('search finds matches, navigates, and explains an empty result', async ({ p
   expect(readingArea).not.toBeNull();
   expect(anchor!.y).toBeGreaterThanOrEqual(readingArea!.y);
   expect(anchor!.y).toBeLessThanOrEqual(readingArea!.y + readingArea!.height);
+  expect(anchor!.x).toBeGreaterThanOrEqual(readingArea!.x);
+  expect(anchor!.x).toBeLessThanOrEqual(readingArea!.x + readingArea!.width);
 
   await input.fill('a phrase that is not present anywhere in this document');
   await expect(page.locator('.search-empty')).toContainText('No matches', { timeout: 20_000 });
@@ -143,11 +149,11 @@ test('highlight, ink, note, signature, native export, and session restore', asyn
   expect(noteBefore).not.toBeNull();
   await page.mouse.move(noteBefore!.x + 40, noteBefore!.y + 20);
   await page.mouse.down();
-  await page.mouse.move(noteBefore!.x + 100, noteBefore!.y + 60, { steps: 8 });
+  await page.mouse.move(noteBefore!.x - 20, noteBefore!.y + 60, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(400);
   const noteMoved = await note.boundingBox();
-  expect(noteMoved!.x).toBeGreaterThan(noteBefore!.x + 20);
+  expect(noteMoved!.x).toBeLessThan(noteBefore!.x - 20);
   await page.keyboard.press('Control+z');
   await page.waitForTimeout(400);
   const noteUndone = await note.boundingBox();
@@ -244,7 +250,7 @@ test('signature field suggestions, approval, and camera cleanup', async ({ page 
   await expect(page.locator('dialog[open] .modal-subtitle')).toContainText('1 possible signature field', {
     timeout: 15_000,
   });
-  await page.getByRole('tab', { name: 'Type' }).click();
+  await page.getByRole('button', { name: 'Type' }).click();
   await page.getByRole('textbox', { name: 'Typed signature text' }).fill('Grace Hopper');
   await page.getByRole('button', { name: 'Continue to placement' }).click();
   await expect(page.locator('.signature-preview')).toBeVisible();
@@ -257,7 +263,7 @@ test('signature field suggestions, approval, and camera cleanup', async ({ page 
   await page.getByRole('button', { name: 'Go to Library' }).click();
   await openFixture(page, fixtures.sample);
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await page.getByRole('tab', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Camera' }).click();
   await page.getByRole('button', { name: 'Start camera' }).click();
   await expect(page.locator('video')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Capture' })).toBeEnabled({ timeout: 15_000 });
@@ -318,6 +324,7 @@ test('focus mode hides the chrome and restores it on exit', async ({ page }) => 
   await expect(page.locator('.toolbar')).toBeHidden();
   await expect(page.locator('.thumb-sidebar')).toBeHidden();
   await expect(page.locator('.focus-exit')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Exit focus' })).toBeFocused();
   await page.screenshot({ path: test.info().outputPath('focus-mode.png') });
   await page.getByRole('button', { name: 'Exit focus' }).click();
   await expect(page.locator('.titlebar')).toBeVisible();
@@ -330,7 +337,7 @@ test('remembered signatures are opt-in, save only after approval, and can be for
   await goToPage(page, 2);
 
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await page.getByRole('tab', { name: 'Type' }).click();
+  await page.getByRole('button', { name: 'Type' }).click();
   await page.getByRole('textbox', { name: 'Typed signature text' }).fill('Grace Hopper');
   await page.locator('dialog[open]').getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Continue to placement' }).click();
@@ -339,11 +346,11 @@ test('remembered signatures are opt-in, save only after approval, and can be for
   await expect(page.locator('.signature-placement-bar')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await expect(page.getByRole('tab', { name: 'Saved' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).last().click();
 
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await page.getByRole('tab', { name: 'Type' }).click();
+  await page.getByRole('button', { name: 'Type' }).click();
   await page.getByRole('textbox', { name: 'Typed signature text' }).fill('Grace Hopper');
   await page.locator('dialog[open]').getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Continue to placement' }).click();
@@ -351,12 +358,12 @@ test('remembered signatures are opt-in, save only after approval, and can be for
   await expect(page.locator('.annotation-signature')).toHaveCount(1);
 
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await expect(page.getByRole('tab', { name: 'Saved' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible();
   await expect(page.locator('.signature-saved-row')).toContainText('unencrypted');
   await page.getByRole('button', { name: 'Forget saved signature' }).click();
   await expect(page.getByRole('button', { name: 'Forget', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Forget', exact: true }).click();
-  await expect(page.getByRole('tab', { name: 'Saved' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).last().click();
 });
 
@@ -420,7 +427,7 @@ test('signature preview and approved stamp agree on a rotated page', async ({ pa
   await gotoLibrary(page);
   await openFixture(page, fixtures.rotated);
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await page.getByRole('tab', { name: 'Type' }).click();
+  await page.getByRole('button', { name: 'Type' }).click();
   await page.getByRole('textbox', { name: 'Typed signature text' }).fill('Ada Lovelace');
   await page.getByRole('button', { name: 'Continue to placement' }).click();
   const preview = page.locator('.signature-preview');
@@ -457,7 +464,7 @@ test('closing the signature dialog while camera permission is pending stops the 
   await gotoLibrary(page);
   await openFixture(page, fixtures.sample);
   await page.getByRole('button', { name: 'Add a signature' }).click();
-  await page.getByRole('tab', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Camera' }).click();
   await page.getByRole('button', { name: 'Start camera' }).click();
   await page.locator('dialog[open]').getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.waitForTimeout(1600);
@@ -490,8 +497,9 @@ test('long text notes grow instead of silently clipping', async ({ page }) => {
     return object.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
   });
   expect(freeText).toBeDefined();
-  const contents = pdf.context.lookup(freeText!, PDFDict).get(PDFName.of('Contents'))?.toString() ?? '';
-  expect(contents).toContain('The final sentence must remain visible.');
+  const contents = pdf.context.lookup(freeText!, PDFDict).get(PDFName.of('Contents'));
+  const decoded = contents instanceof PDFHexString ? contents.decodeText() : contents?.toString() ?? '';
+  expect(decoded).toContain('The final sentence must remain visible.');
 });
 
 test('the library honors the Ctrl+O shortcut it advertises', async ({ page }) => {
@@ -513,4 +521,149 @@ test('the desktop minimum width keeps the thumbnail rail out of the page', async
   expect(frame).not.toBeNull();
   expect(frame!.x).toBeGreaterThanOrEqual(sidebar!.x + sidebar!.width - 1);
   await page.screenshot({ path: test.info().outputPath('desktop-min-width.png') });
+});
+
+test('toolbar actions remain inside the desktop minimum width', async ({ page }) => {
+  for (const width of [820, 780]) {
+    await page.setViewportSize({ width, height: 760 });
+    await gotoLibrary(page);
+    await openFixture(page, fixtures.sample);
+    const more = await page.getByRole('button', { name: 'More document actions' }).boundingBox();
+    const exportButton = await page.getByRole('button', { name: /Export/ }).boundingBox();
+    expect(more).not.toBeNull();
+    expect(exportButton).not.toBeNull();
+    expect(more!.x + more!.width).toBeLessThanOrEqual(width + 1);
+    expect(exportButton!.x + exportButton!.width).toBeLessThanOrEqual(width + 1);
+    await page.getByRole('button', { name: 'Go to Library' }).click();
+    await page.waitForTimeout(500);
+  }
+});
+
+test('local storage failure opens the document in reading-only mode', async ({ page }) => {
+  await page.addInitScript(() => {
+    indexedDB.open = () => {
+      throw new DOMException('storage disabled by probe', 'UnknownError');
+    };
+  });
+  await gotoLibrary(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Open PDF' }).first().click();
+  await (await chooser).setFiles(fixtures.sample);
+  await expect(page.locator('.reader')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.signature-warning-banner')).toContainText('Reading only');
+  await expect(page.getByRole('button', { name: 'Highlight text' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Add a signature' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Go to Library' }).click();
+  await expect(page.locator('.library-title')).toBeVisible();
+});
+
+test('a capture-processing error stops the camera instead of leaving it live', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    (window as unknown as { __captureStopped: number }).__captureStopped = 0;
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      const stream = await original(constraints);
+      for (const track of stream.getTracks()) {
+        const stop = track.stop.bind(track);
+        track.stop = () => {
+          (window as unknown as { __captureStopped: number }).__captureStopped += 1;
+          stop();
+        };
+      }
+      return stream;
+    };
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function (type, quality) {
+      if ((window as unknown as { __forceCaptureError?: boolean }).__forceCaptureError) {
+        throw new Error('capture processing failed');
+      }
+      return originalToDataURL.call(this, type, quality);
+    };
+  });
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await page.getByRole('button', { name: 'Add a signature' }).click();
+  await page.getByRole('button', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByRole('button', { name: 'Capture' })).toBeEnabled({ timeout: 15_000 });
+  await page.evaluate(() => {
+    (window as unknown as { __forceCaptureError: boolean }).__forceCaptureError = true;
+  });
+  await page.getByRole('button', { name: 'Capture' }).click();
+  await expect(page.locator('dialog[open] .notice.warn')).toContainText('capture processing failed');
+  expect(await page.evaluate(() => (window as unknown as { __captureStopped: number }).__captureStopped)).toBeGreaterThan(0);
+  await expect(page.locator('video')).toHaveCount(0);
+});
+
+test('the signature dialog keeps trust copy and actions visible at 390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await page.getByRole('button', { name: 'Add a signature' }).click();
+  const footer = page.locator('dialog[open] .modal-footer');
+  await expect(footer).toBeVisible();
+  await expect(footer.getByRole('button', { name: 'Continue to placement' })).toBeVisible();
+  const hint = footer.locator('.hint');
+  await expect(hint).toBeVisible();
+  const dialog = await page.locator('dialog[open]').boundingBox();
+  const hintBox = await hint.boundingBox();
+  const buttonBox = await footer.getByRole('button', { name: 'Continue to placement' }).boundingBox();
+  expect(dialog).not.toBeNull();
+  expect(hintBox).not.toBeNull();
+  expect(buttonBox).not.toBeNull();
+  expect(hintBox!.x).toBeGreaterThanOrEqual(dialog!.x);
+  expect(hintBox!.x + hintBox!.width).toBeLessThanOrEqual(dialog!.x + dialog!.width + 1);
+  expect(buttonBox!.x + buttonBox!.width).toBeLessThanOrEqual(dialog!.x + dialog!.width + 1);
+  await page.screenshot({ path: test.info().outputPath('signature-mobile.png') });
+});
+
+test('compact overlays close after a page or search result is chosen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await page.getByRole('toolbar', { name: 'Document controls' }).getByRole('button', { name: 'Show thumbnails' }).click();
+  await expect(page.locator('.thumb-sidebar')).toBeVisible();
+  await page.locator('.thumb-button').nth(4).click();
+  await page.waitForTimeout(500);
+  await expect(page.locator('.thumb-sidebar')).toHaveCount(0);
+  await page.keyboard.press('Control+f');
+  const input = page.getByRole('textbox', { name: 'Find in document' });
+  await input.fill('luminous margin');
+  await expect(page.locator('.search-result').first()).toBeVisible({ timeout: 20_000 });
+  await page.locator('.search-result').first().click();
+  await page.waitForTimeout(500);
+  await expect(page.locator('.side-panel')).toHaveCount(0);
+  await expect(page.locator('.reading-area')).toBeVisible();
+});
+
+test('an annotation quota failure still allows export and an explicit leave', async ({ page }) => {
+  await installExportCapture(page);
+  await page.addInitScript(() => {
+    const originalPut = IDBObjectStore.prototype.put;
+    (window as unknown as { __failAnnotationWrites: boolean }).__failAnnotationWrites = false;
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey) {
+      if (
+        (window as unknown as { __failAnnotationWrites: boolean }).__failAnnotationWrites &&
+        this.name === 'annotations'
+      ) {
+        throw new DOMException('quota probe', 'QuotaExceededError');
+      }
+      return key === undefined ? originalPut.call(this, value) : originalPut.call(this, value, key);
+    };
+  });
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await goToPage(page, 2);
+  await page.evaluate(() => {
+    (window as unknown as { __failAnnotationWrites: boolean }).__failAnnotationWrites = true;
+  });
+  await activateText(page);
+  await addTextNote(page, 1, 240, 500, 'This note cannot be persisted.');
+  await expect(page.locator('.toast')).toContainText('could not be saved', { timeout: 15_000 });
+  const exported = await exportBytes(page);
+  expect(exported.length).toBeGreaterThan(1000);
+  await page.getByRole('button', { name: 'Go to Library' }).click();
+  await expect(page.locator('dialog[open] .modal-title')).toHaveText('Leave without saving?');
+  await page.getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page.locator('.library-title')).toBeVisible();
 });

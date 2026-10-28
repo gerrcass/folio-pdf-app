@@ -11,4 +11,5 @@ export interface OpenedDocument {
   annotations: Annotation[];
   initialSession: ReadingSession | null;
   openedAt: number;
+  annotationsUnavailable?: boolean;
 }

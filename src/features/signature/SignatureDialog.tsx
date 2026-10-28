@@ -65,6 +65,7 @@ export function SignatureDialog({
   const tabRef = useRef(tab);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
+  const prepareRequestRef = useRef(0);
   const cameraSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
   openRef.current = open;
   tabRef.current = tab;
@@ -87,6 +88,7 @@ export function SignatureDialog({
     setError(null);
     setNotice(null);
     setBusy(false);
+    prepareRequestRef.current += 1;
     setRemember(false);
     setConfirmForget(false);
     setTyped('');
@@ -119,7 +121,10 @@ export function SignatureDialog({
     const video = videoRef.current;
     if (!video) return;
     video.srcObject = cameraStream;
-    void video.play().catch(() => setCameraError('The camera preview could not start.'));
+    void video.play().catch(() => {
+      setCameraError('The camera preview could not start.');
+      stopCamera();
+    });
     return () => {
       if (video.srcObject === cameraStream) video.srcObject = null;
     };
@@ -177,6 +182,7 @@ export function SignatureDialog({
       setNotice('Photo captured. Nothing is added to the PDF until you approve placement.');
       stopCamera();
     } catch (caught) {
+      stopCamera();
       setError(caught instanceof Error ? caught.message : 'The camera frame could not be processed.');
     } finally {
       setBusy(false);
@@ -204,6 +210,8 @@ export function SignatureDialog({
 
   const prepareSignature = async () => {
     setError(null);
+    const requestId = prepareRequestRef.current + 1;
+    prepareRequestRef.current = requestId;
     setBusy(true);
     try {
       let dataUrl: string | null = null;
@@ -231,6 +239,7 @@ export function SignatureDialog({
         source = 'camera';
       }
       if (!dataUrl) throw new Error('Create a signature first.');
+      if (!openRef.current || requestId !== prepareRequestRef.current) return;
       stopCamera();
       onUse(dataUrl, shouldRemember, source);
     } catch (caught) {
@@ -325,15 +334,14 @@ export function SignatureDialog({
       ) : null}
 
       <div className="signature-layout">
-        <div className="signature-tabs" role="tablist" aria-label="Signature method">
+        <div className="signature-tabs" role="group" aria-label="Signature method">
           {tabs
             .filter((entry) => !entry.hidden)
             .map((entry) => (
               <button
                 key={entry.id}
                 className={`signature-tab ${tab === entry.id ? 'active' : ''}`}
-                role="tab"
-                aria-selected={tab === entry.id}
+                aria-pressed={tab === entry.id}
                 onClick={() => {
                   setError(null);
                   setTab(entry.id);

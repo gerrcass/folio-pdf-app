@@ -77,42 +77,38 @@ export function AnnotationsPanel({
                   <div
                     key={annotation.id}
                     className={`annotation-row ${selectedId === annotation.id ? 'active' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onSelect(annotation)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onSelect(annotation);
-                      }
-                    }}
                   >
-                    <span
-                      className="annotation-kind"
-                      style={
-                        annotation.kind === 'highlight'
-                          ? { color: highlightHex(annotation.color) }
-                          : annotation.kind === 'ink' || annotation.kind === 'text'
-                            ? { color: annotation.color }
-                            : undefined
-                      }
+                    <button
+                      className="annotation-open"
+                      type="button"
+                      onClick={() => onSelect(annotation)}
+                      aria-current={selectedId === annotation.id ? 'true' : undefined}
                     >
-                      {iconFor(annotation)}
-                    </span>
-                    <span className="annotation-copy">
-                      <span className="annotation-label" title={labelFor(annotation)}>
-                        {labelFor(annotation)}
+                      <span
+                        className="annotation-kind"
+                        style={
+                          annotation.kind === 'highlight'
+                            ? { color: highlightHex(annotation.color) }
+                            : annotation.kind === 'ink' || annotation.kind === 'text'
+                              ? { color: annotation.color }
+                              : undefined
+                        }
+                      >
+                        {iconFor(annotation)}
                       </span>
-                      <span className="annotation-snippet">{snippetFor(annotation)}</span>
-                    </span>
+                      <span className="annotation-copy">
+                        <span className="annotation-label" title={labelFor(annotation)}>
+                          {labelFor(annotation)}
+                        </span>
+                        <span className="annotation-snippet">{snippetFor(annotation)}</span>
+                      </span>
+                    </button>
                     <button
                       className="annotation-delete"
                       type="button"
                       aria-label="Delete annotation"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDelete(annotation);
-                      }}
+                      data-tooltip="Delete annotation"
+                      onClick={() => onDelete(annotation)}
                     >
                       <Trash2 size={12} />
                     </button>

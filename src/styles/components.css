@@ -20,6 +20,7 @@
 
 .titlebar-brand {
   -webkit-app-region: no-drag;
+  min-height: 24px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -231,7 +232,7 @@
 .button.primary:hover:not(:disabled) {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff9f3;
+  color: var(--accent-contrast);
 }
 
 .button.ghost {
@@ -244,8 +245,8 @@
 }
 
 .button.danger {
-  background: var(--danger);
-  border-color: var(--danger);
+  background: var(--danger-solid);
+  border-color: var(--danger-solid);
   color: #fff;
 }
 
@@ -640,7 +641,7 @@
 }
 
 .toast.error {
-  background: var(--danger);
+  background: var(--danger-solid);
   color: #fff;
 }
 
@@ -830,5 +831,26 @@ html[data-theme='dark'] dialog.modal::backdrop {
 
   .doc-title {
     max-width: 34vw;
+  }
+}
+
+@media (max-width: 760px) {
+  .modal-footer {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .modal-footer > .hint {
+    flex: 1 0 100%;
+    max-width: none !important;
+    margin-right: 0 !important;
+  }
+
+  .modal-footer > .button {
+    margin-left: auto;
+  }
+
+  .modal-footer .left {
+    flex: 1 1 100%;
   }
 }

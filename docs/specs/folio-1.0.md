@@ -85,7 +85,7 @@ Folio ships as a secure Electron application (sandboxed renderer, narrow preload
 
 - Two build targets share one renderer codebase: an Electron desktop target and a static browser target. The renderer detects a preload bridge; its absence selects the Browser Edition. Edition detection is explicit, not inferred from user-agent text.
 - The Reader is a single application-level state machine: Library ↔ Reader, with dialogs (password, print, document info, signature, about) layered above. Document loading has explicit loading, ready, password-required, error, and closed states.
-- All local persistence flows through one storage module that owns a single IndexedDB connection. Documents, annotations, sessions, settings, and remembered signatures are separate stores. Persistence is debounced for high-frequency state and flushed on teardown/visibility change.
+- All document persistence flows through one storage module that owns a single IndexedDB connection. Documents, annotations, sessions, and remembered signatures are separate stores. Interface theme and Night Reading use synchronous `localStorage` so the first paint is correct; they contain no document content. Persistence is debounced for high-frequency state and flushed on teardown/visibility change.
 - The Document Fingerprint (SHA-256 of bytes) is the document identity. The Library is bounded to 24 Recent Documents and 200 MB of cached PDF bytes, evicting least-recently-opened entries except the open document.
 - The update bridge, app-info bridge, print bridge, and open-file bridge are optional platform capabilities. Browser Edition capability flags are false; UI switches to browser-native alternatives or hides the action with an explanation.
 

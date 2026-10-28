@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { annotationAtPoint } from '../../annotations/hit-test';
 import type { Annotation, PdfPoint, PdfQuad } from '../../annotations/types';
 import { highlightHex } from '../../annotations/types';
+import { clamp } from '../../lib/utils';
 import type { ReaderTool } from './types';
 import {
   quadFromScreenRect,
@@ -54,6 +55,7 @@ interface PageViewProps {
   searchQuery: string;
   searchCaseSensitive: boolean;
   activePageOrdinal: number | null;
+  searchNavigationToken: number;
   textDraft: TextDraft | null;
   textColor: string;
   textFontSize: number;
@@ -96,6 +98,7 @@ export function PageView({
   searchQuery,
   searchCaseSensitive,
   activePageOrdinal,
+  searchNavigationToken,
   textDraft,
   textColor,
   textFontSize,
@@ -324,11 +327,21 @@ export function PageView({
     if (!area || !frame) return;
     const frameRect = frame.getBoundingClientRect();
     const areaRect = area.getBoundingClientRect();
-    const targetTop = frameRect.top + searchAnchor.y;
-    if (targetTop < areaRect.top + 64 || targetTop > areaRect.bottom - 72) {
-      area.scrollTop += targetTop - areaRect.top - area.clientHeight * 0.32;
-    }
-  }, [activePageOrdinal, scrollRoot, searchAnchor]);
+    const anchorX = frameRect.left + searchAnchor.x;
+    const anchorY = frameRect.top + searchAnchor.y;
+    const desiredLeft =
+      area.scrollLeft + anchorX - areaRect.left - area.clientWidth * 0.32;
+    const desiredTop =
+      area.scrollTop + anchorY - areaRect.top - area.clientHeight * 0.32;
+    area.scrollLeft = Math.max(
+      0,
+      Math.min(area.scrollWidth - area.clientWidth, desiredLeft),
+    );
+    area.scrollTop = Math.max(
+      0,
+      Math.min(area.scrollHeight - area.clientHeight, desiredTop),
+    );
+  }, [activePageOrdinal, searchAnchor, searchNavigationToken, scrollRoot]);
 
   useEffect(() => {
     const canvas = inkCanvasRef.current;
@@ -436,16 +449,26 @@ export function PageView({
     const dy = point.y - drag.start.y;
     if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
     if (drag.mode === 'move') {
+      const movedRect = clampRect(
+        { ...drag.bbox, x: drag.bbox.x + dx, y: drag.bbox.y + dy },
+        width,
+        height,
+      );
+      const adjustedDx = movedRect.x - drag.bbox.x;
+      const adjustedDy = movedRect.y - drag.bbox.y;
       const [startX, startY] = viewport.convertToPdfPoint(drag.start.x, drag.start.y) as [number, number];
-      const [endX, endY] = viewport.convertToPdfPoint(point.x, point.y) as [number, number];
+      const [endX, endY] = viewport.convertToPdfPoint(
+        drag.start.x + adjustedDx,
+        drag.start.y + adjustedDy,
+      ) as [number, number];
       setLiveEdit({
         id: drag.annotation.id,
         quad: translateQuad(drag.annotation.quad, endX - startX, endY - startY),
       });
       return;
     }
-    const newWidth = Math.max(60, drag.bbox.width + dx);
-    const newHeight = Math.max(30, drag.bbox.height + dy);
+    const newWidth = clamp(drag.bbox.width + dx, 60, width - drag.bbox.x);
+    const newHeight = clamp(drag.bbox.height + dy, 30, height - drag.bbox.y);
     const scaleX = newWidth / Math.max(drag.bbox.width, 1);
     const scaleY = newHeight / Math.max(drag.bbox.height, 1);
     const mapPoint = (value: ScreenPoint): ScreenPoint => ({
@@ -529,7 +552,10 @@ export function PageView({
   const handleInkPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const drawing = inkDrawingRef.current;
     if (!drawing || drawing.pointerId !== event.pointerId) return;
-    const point = localPoint(event.clientX, event.clientY);
+    const rawPoint = localPoint(event.clientX, event.clientY);
+    const point = rawPoint
+      ? { x: clamp(rawPoint.x, 0, width), y: clamp(rawPoint.y, 0, height) }
+      : null;
     const context = inkCanvasRef.current?.getContext('2d');
     if (!point || !context) return;
     event.preventDefault();

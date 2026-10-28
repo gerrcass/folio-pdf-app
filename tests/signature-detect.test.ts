@@ -64,3 +64,20 @@ describe('signature field suggestions', () => {
     );
     expect(targets).toHaveLength(0);
   });
+
+  it('does not suggest a widget that already carries a value', () => {
+    const targets = detectSignatureTargetsFromData(
+      [
+        {
+          id: 'signed-widget',
+          subtype: 'Widget',
+          fieldType: 'Sig',
+          fieldValue: 'signed-dictionary',
+          rect: [54, 470, 354, 504],
+        },
+      ],
+      [],
+      pageView,
+    );
+    expect(targets).toHaveLength(0);
+  });

@@ -401,7 +401,7 @@ function createWindow(): void {
     closeTimer = setTimeout(() => {
       allowClose = true;
       if (!window.isDestroyed()) window.close();
-    }, 2500);
+    }, 10_000);
   });
 
   window.on('closed', () => {

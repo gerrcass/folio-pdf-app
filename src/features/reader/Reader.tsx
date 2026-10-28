@@ -1,4 +1,18 @@
-import { Check, ChevronDown, CircleAlert, Minimize2, MoonStar, Trash2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Minimize2,
+  Minus,
+  MoonStar,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   forwardRef,
   useCallback,
@@ -17,10 +31,11 @@ import { fitTextQuad } from '../../annotations/text-layout';
 import { useToast } from '../../components/Toast';
 import type { DigitalSignatureInfo } from '../../pdf/document';
 import { findSignatureTargets, type SignatureTarget } from '../../pdf/signature-detect';
-import { quadFromScreenRect, type ScreenRect } from '../../pdf/geometry';
+import { quadBBox, quadCenter, quadFromScreenRect, translateQuad, type ScreenRect } from '../../pdf/geometry';
 import { SearchIndex, type SearchProgress, type SearchResultSet } from '../../pdf/search';
 import { savePdfFile } from '../../platform';
 import { saveAnnotations } from '../../storage/annotations';
+import { pruneLibrary } from '../../storage/library';
 import { rememberSignature } from '../../storage/signatures';
 import type { ReadingSession, SpreadMode, ZoomMode } from '../../storage';
 import { AnnotationsPanel } from './AnnotationsPanel';
@@ -92,6 +107,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
   ref,
 ) {
   const { notify } = useToast();
+  const readOnly = Boolean(doc.annotationsUnavailable);
   const initial = doc.initialSession;
   const [history, dispatch] = useReducer(historyReducer, createHistoryState(doc.annotations));
   const annotations = history.present;
@@ -109,7 +125,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
   const [zoomValue, setZoomValue] = useState(initial?.zoomValue ?? 1);
   const [rotation, setRotation] = useState(initial?.rotation ?? 0);
   const [sidebarVisible, setSidebarVisible] = useState(
-    typeof window !== 'undefined' && window.innerWidth >= 760
+    typeof window !== 'undefined' && window.innerWidth > 760
       ? (initial?.sidebarVisible ?? true)
       : false,
   );
@@ -119,6 +135,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultSet | null>(null);
   const [activeMatchIndex, setActiveMatchIndex] = useState(0);
+  const [searchNavigationToken, setSearchNavigationToken] = useState(0);
   const [searchProgress, setSearchProgress] = useState<SearchProgress>({
     indexedPages: 0,
     totalPages: doc.session.pageCount,
@@ -138,6 +155,8 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
   const [readingSize, setReadingSize] = useState({ width: 0, height: 0 });
 
   const readingAreaRef = useRef<HTMLDivElement>(null);
+  const focusExitRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const rowRefs = useRef(new Map<number, HTMLDivElement>());
   const scrollRafRef = useRef<number | null>(null);
   const anchorRef = useRef<{ pageIndex: number; offset: number } | null>(null);
@@ -268,7 +287,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
 
 
   useEffect(() => {
-    const query = window.matchMedia('(max-width: 759px)');
+    const query = window.matchMedia('(max-width: 760px)');
     const collapse = () => {
       if (query.matches) setSidebarVisible(false);
     };
@@ -383,6 +402,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
   // Annotation persistence
   // ---------------------------------------------------------------------
   const persistAnnotations = useCallback(async () => {
+    if (readOnly) return;
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -394,7 +414,16 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       return;
     }
     try {
-      await saveAnnotations(doc.session.fingerprint, snapshot);
+      try {
+        await saveAnnotations(doc.session.fingerprint, snapshot);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+          await pruneLibrary([doc.session.fingerprint]);
+          await saveAnnotations(doc.session.fingerprint, snapshot);
+        } else {
+          throw error;
+        }
+      }
       lastSavedRef.current = serialized;
       if (mountedRef.current) {
         setDirty(JSON.stringify(annotationsRef.current) !== serialized);
@@ -411,10 +440,14 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       }
       throw error;
     }
-  }, [doc.session.fingerprint, notify]);
+  }, [doc.session.fingerprint, notify, readOnly]);
 
   useEffect(() => {
     annotationsRef.current = annotations;
+    if (readOnly) {
+      setDirty(false);
+      return;
+    }
     const serialized = JSON.stringify(annotations);
     if (serialized === lastSavedRef.current) {
       setDirty(false);
@@ -432,7 +465,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
         saveTimerRef.current = null;
       }
     };
-  }, [annotations, persistAnnotations]);
+  }, [annotations, persistAnnotations, readOnly]);
 
   useEffect(() => {
     onDirtyChange(dirty);
@@ -443,11 +476,12 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     return () => {
       mountedRef.current = false;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (readOnly) return;
       const id = doc.session.fingerprint;
       const snapshot = annotationsRef.current;
       void saveAnnotations(id, snapshot).catch(() => undefined);
     };
-  }, [doc.session.fingerprint]);
+  }, [doc.session.fingerprint, readOnly]);
 
   useEffect(() => {
     return () => {
@@ -510,8 +544,10 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       if (!searchResults || searchResults.total === 0) return;
       const next = ((index % searchResults.total) + searchResults.total) % searchResults.total;
       setActiveMatchIndex(next);
+      setSearchNavigationToken((current) => current + 1);
       const match = searchResults.matches[next];
       if (match) scrollToPage(match.pageIndex);
+      if (window.innerWidth < 1050) setRightPanel(null);
     },
     [scrollToPage, searchResults],
   );
@@ -685,7 +721,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
   }, [annotations, doc.session, highlightColor, rotation, scale]);
 
   useEffect(() => {
-    if (tool !== 'highlight') return;
+    if (tool !== 'highlight' || readOnly) return;
     const onMouseUp = (event: MouseEvent) => {
       const target = event.target as Element | null;
       if (target?.closest('button, input, textarea, .toolbar, .side-panel, .modal, .thumb-sidebar')) return;
@@ -693,7 +729,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     };
     window.document.addEventListener('mouseup', onMouseUp);
     return () => window.document.removeEventListener('mouseup', onMouseUp);
-  }, [addHighlightFromSelection, tool]);
+  }, [addHighlightFromSelection, tool, readOnly]);
 
   useEffect(() => {
     if (tool !== 'text' && textDraft) setTextDraft(null);
@@ -711,6 +747,22 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     dispatch({ type: 'commit', annotations: addAnnotations(annotations, [annotation]) });
   };
 
+  const fitAndClampText = (quad: PdfQuad, text: string, fontSize: number, pageIndex: number): PdfQuad => {
+    let fitted = fitTextQuad(quad, text, fontSize);
+    const page = doc.session.pages[pageIndex];
+    if (!page) return fitted;
+    const [x0, y0, x1, y1] = page.view;
+    const bounds = quadBBox(fitted);
+    let dx = 0;
+    let dy = 0;
+    if (bounds.x < x0) dx = x0 - bounds.x;
+    else if (bounds.x + bounds.width > x1) dx = x1 - (bounds.x + bounds.width);
+    if (bounds.y < y0) dy = y0 - bounds.y;
+    else if (bounds.y + bounds.height > y1) dy = y1 - (bounds.y + bounds.height);
+    if (dx !== 0 || dy !== 0) fitted = translateQuad(fitted, dx, dy);
+    return fitted;
+  };
+
   const handleSubmitText = (text: string) => {
     if (!textDraft) return;
     const annotation: TextAnnotation = {
@@ -718,7 +770,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       kind: 'text',
       color: textColor,
       fontSize: textFontSize,
-      quad: fitTextQuad(textDraft.quad, text, textFontSize),
+      quad: fitAndClampText(textDraft.quad, text, textFontSize, textDraft.pageIndex),
       text,
     };
     dispatch({ type: 'commit', annotations: addAnnotations(annotations, [annotation]) });
@@ -726,11 +778,45 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     setSelectedId(annotation.id);
   };
 
+  const nudgeSelected = (dxScreen: number, dyScreen: number) => {
+    if (!selectedAnnotation || (selectedAnnotation.kind !== 'text' && selectedAnnotation.kind !== 'signature')) {
+      return;
+    }
+    const viewport = doc.session.getViewport(page, scale, rotation);
+    const [x0, y0] = viewport.convertToPdfPoint(0, 0) as [number, number];
+    const [x1, y1] = viewport.convertToPdfPoint(dxScreen, dyScreen) as [number, number];
+    updateSelected({
+      quad: translateQuad(selectedAnnotation.quad, x1 - x0, y1 - y0),
+    } as Partial<Annotation>);
+  };
+
+  const scaleSelected = (factor: number) => {
+    if (!selectedAnnotation || (selectedAnnotation.kind !== 'text' && selectedAnnotation.kind !== 'signature')) {
+      return;
+    }
+    const center = quadCenter(selectedAnnotation.quad);
+    const scalePoint = (point: { x: number; y: number }) => ({
+      x: center.x + (point.x - center.x) * factor,
+      y: center.y + (point.y - center.y) * factor,
+    });
+    updateSelected({
+      quad: {
+        p0: scalePoint(selectedAnnotation.quad.p0),
+        p1: scalePoint(selectedAnnotation.quad.p1),
+        p2: scalePoint(selectedAnnotation.quad.p2),
+        p3: scalePoint(selectedAnnotation.quad.p3),
+      },
+    } as Partial<Annotation>);
+  };
+
   const updateSelected = (changes: Partial<Annotation>) => {
     if (!selectedAnnotation) return;
     let updated = { ...selectedAnnotation, ...changes, updatedAt: Date.now() } as Annotation;
     if (updated.kind === 'text' && ('fontSize' in changes || 'text' in changes)) {
-      updated = { ...updated, quad: fitTextQuad(updated.quad, updated.text, updated.fontSize) };
+      updated = {
+        ...updated,
+        quad: fitAndClampText(updated.quad, updated.text, updated.fontSize, updated.pageIndex),
+      };
     }
     dispatch({ type: 'commit', annotations: updateAnnotation(annotations, updated) });
   };
@@ -793,6 +879,16 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
 
   useEffect(() => {
     onFocusChange(focusMode);
+    if (focusMode) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+      const timer = setTimeout(() => focusExitRef.current?.focus(), 60);
+      return () => {
+        clearTimeout(timer);
+        onFocusChange(false);
+        previousFocusRef.current?.focus();
+      };
+    }
+    previousFocusRef.current?.focus();
     return () => onFocusChange(false);
   }, [focusMode, onFocusChange]);
 
@@ -800,7 +896,11 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     if (exporting) return;
     setExporting(true);
     try {
-      await persistAnnotations();
+      try {
+        await persistAnnotations();
+      } catch {
+        notify('Annotations could not be saved locally; exporting the current in-memory state instead.', 'error');
+      }
       const { exportAnnotatedPdf } = await import('../../pdf/export');
       const bytes = await exportAnnotatedPdf(doc.session.bytes, annotationsRef.current);
       const buffer = bytes.slice().buffer;
@@ -842,12 +942,12 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       }
       if (mod && key === 'z') {
         event.preventDefault();
-        dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
+        if (!readOnly) dispatch({ type: event.shiftKey ? 'redo' : 'undo' });
         return;
       }
       if (mod && key === 'y') {
         event.preventDefault();
-        dispatch({ type: 'redo' });
+        if (!readOnly) dispatch({ type: 'redo' });
         return;
       }
       if (mod && (key === '+' || key === '=')) {
@@ -915,6 +1015,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     goToAdjacentRow,
     onOpenFile,
     pendingSignature,
+    readOnly,
     rightPanel,
     scrollToPage,
     selectedId,
@@ -945,6 +1046,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       <ReaderToolbar
         tool={tool}
         onToolChange={(nextTool) => {
+          if (readOnly && nextTool !== 'select') return;
           setTool(nextTool);
           setSignatureDialogOpen(false);
           if (nextTool !== 'text') setTextDraft(null);
@@ -996,6 +1098,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
         onInfo={() => setInfoOpen(true)}
         onOpenFile={onOpenFile}
         onAbout={onAbout}
+        readOnly={readOnly}
       />
 
       <div className="reader-main">
@@ -1004,7 +1107,10 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
             session={doc.session}
             currentPage={page}
             nightMode={nightMode}
-            onSelect={scrollToPage}
+            onSelect={(pageIndex) => {
+              scrollToPage(pageIndex);
+              if (window.innerWidth <= 760) setSidebarVisible(false);
+            }}
             onClose={toggleSidebar}
           />
         ) : null}
@@ -1044,6 +1150,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
                     searchQuery={searchQuery}
                     searchCaseSensitive={false}
                     activePageOrdinal={activeMatch?.pageIndex === pageIndex ? activeMatch.ordinalOnPage : null}
+                    searchNavigationToken={searchNavigationToken}
                     textDraft={textDraft}
                     textColor={textColor}
                     textFontSize={textFontSize}
@@ -1104,6 +1211,13 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
           />
         ) : null}
 
+        {readOnly ? (
+          <div className="signature-warning-banner" role="status">
+            <CircleAlert size={13} />
+            Reading only — local annotations could not be read. Existing data will not be overwritten.
+          </div>
+        ) : null}
+
         {digitalSignatures.length > 0 ? (
           <button
             className="signature-warning-banner"
@@ -1137,6 +1251,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
                     style={{ background: entry.hex }}
                     onClick={() => updateSelected({ color: entry.id } as Partial<Annotation>)}
                     aria-label={`${entry.label} highlight`}
+                    aria-pressed={selectedAnnotation.color === entry.id}
                     type="button"
                   />
                 ))}
@@ -1152,6 +1267,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
                       style={{ background: color }}
                       onClick={() => updateSelected({ color } as Partial<Annotation>)}
                       aria-label={`Ink color ${color}`}
+                      aria-pressed={selectedAnnotation.color === color}
                       type="button"
                     />
                   ))}
@@ -1183,6 +1299,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
                       style={{ background: color }}
                       onClick={() => updateSelected({ color } as Partial<Annotation>)}
                       aria-label={`Text color ${color}`}
+                      aria-pressed={selectedAnnotation.color === color}
                       type="button"
                     />
                   ))}
@@ -1205,6 +1322,69 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
               </>
             ) : null}
             <span className="inspector-sep" />
+            {selectedAnnotation.kind === 'text' || selectedAnnotation.kind === 'signature' ? (
+              <>
+              <div className="inspector-nudge" role="group" aria-label="Move annotation">
+                <button
+                  className="icon-button small"
+                  onClick={() => nudgeSelected(0, -5)}
+                  aria-label="Move annotation up"
+                  data-tooltip="Move up"
+                  type="button"
+                >
+                  <ArrowUp size={12} />
+                </button>
+                <button
+                  className="icon-button small"
+                  onClick={() => nudgeSelected(0, 5)}
+                  aria-label="Move annotation down"
+                  data-tooltip="Move down"
+                  type="button"
+                >
+                  <ArrowDown size={12} />
+                </button>
+                <button
+                  className="icon-button small"
+                  onClick={() => nudgeSelected(-5, 0)}
+                  aria-label="Move annotation left"
+                  data-tooltip="Move left"
+                  type="button"
+                >
+                  <ArrowLeft size={12} />
+                </button>
+                <button
+                  className="icon-button small"
+                  onClick={() => nudgeSelected(5, 0)}
+                  aria-label="Move annotation right"
+                  data-tooltip="Move right"
+                  type="button"
+                >
+                  <ArrowRight size={12} />
+                </button>
+              </div>
+              <div className="inspector-nudge" role="group" aria-label="Resize annotation">
+                <button
+                  className="icon-button small"
+                  onClick={() => scaleSelected(0.9)}
+                  aria-label="Make annotation smaller"
+                  data-tooltip="Smaller"
+                  type="button"
+                >
+                  <Minus size={12} />
+                </button>
+                <button
+                  className="icon-button small"
+                  onClick={() => scaleSelected(1.1)}
+                  aria-label="Make annotation larger"
+                  data-tooltip="Larger"
+                  type="button"
+                >
+                  <Plus size={12} />
+                </button>
+              </div>
+              </>
+            ) : null}
+            <span className="inspector-sep" />
             <button
               className="icon-button small"
               onClick={deleteSelected}
@@ -1218,6 +1398,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
               className="icon-button small"
               onClick={() => setSelectedId(null)}
               aria-label="Close annotation inspector"
+              data-tooltip="Close inspector"
               type="button"
             >
               <X size={13} />
@@ -1261,10 +1442,16 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
 
         {focusMode ? (
           <div className="focus-exit" role="toolbar" aria-label="Focus mode controls">
-            <button className="icon-button small" onClick={onToggleNight} aria-label="Toggle Night Reading">
+            <button
+              className="icon-button small"
+              onClick={onToggleNight}
+              aria-label="Toggle Night Reading"
+              data-tooltip="Night Reading"
+              type="button"
+            >
               <MoonStar size={13} />
             </button>
-            <button className="button sm ghost" onClick={toggleFocus} type="button">
+            <button ref={focusExitRef} className="button sm ghost" onClick={toggleFocus} type="button">
               <Minimize2 size={13} />
               Exit focus
             </button>

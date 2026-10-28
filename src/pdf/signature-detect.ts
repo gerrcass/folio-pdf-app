@@ -40,6 +40,13 @@ export function detectSignatureTargetsFromData(
 
   for (const annotation of annotations) {
     if (annotation.subtype !== 'Widget' || annotation.fieldType !== 'Sig') continue;
+    if (
+      annotation.fieldValue !== undefined &&
+      annotation.fieldValue !== null &&
+      annotation.fieldValue !== ''
+    ) {
+      continue;
+    }
     const rect = annotation.rect;
     if (!rect || rect.length !== 4) continue;
     const width = Math.abs(rect[2] - rect[0]);
