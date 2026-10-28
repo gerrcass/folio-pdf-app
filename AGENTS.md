@@ -7,7 +7,9 @@ Folio is a local-first PDF reader and annotation app for Windows with a browser-
 1. `docs/specs/folio-1.0.md` — the current spec and acceptance bar.
 2. `docs/adr/0001`–`0006` — decisions that must not be silently reversed.
 3. `docs/design/grill-session.md` — why the boundaries are where they are.
-4. `CODING_STANDARDS.md` — the rules a reviewer will enforce.
+4. `docs/design/review-round-1.md` and `docs/design/review-round-2.md` — resolved findings and known limitations.
+5. `docs/retro/folio-1.0.md` — delivery retrospective and open verification gaps.
+6. `CODING_STANDARDS.md` — the rules a reviewer will enforce.
 
 ## Commands
 

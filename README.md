@@ -75,7 +75,7 @@ npm run screenshots
 - A single IndexedDB connection is shared by the library, sessions, annotations, and remembered signatures. The cached library is bounded to 24 documents / 200 MB, evicting the least-recently-opened cached bytes except the open document. Annotation records are keyed by fingerprint and survive cache eviction; only an explicit Remove from Library deletes them.
 - PDFs, page images, signatures, and camera frames never leave the device. There are no runtime network requests required for reading, annotating, signing, exporting, or printing.
 
-Further detail: [spec](docs/specs/folio-1.0.md) · [ADRs](docs/adr/) · [design grill](docs/design/grill-session.md) · [review round 1](docs/design/review-round-1.md) · [review round 2](docs/design/review-round-2.md) · [agent brief](AGENTS.md) · [coding standards](CODING_STANDARDS.md) · [performance baseline](docs/performance.md).
+Further detail: [spec](docs/specs/folio-1.0.md) · [ADRs](docs/adr/) · [design grill](docs/design/grill-session.md) · [review round 1](docs/design/review-round-1.md) · [review round 2](docs/design/review-round-2.md) · [retrospective](docs/retro/folio-1.0.md) · [agent brief](AGENTS.md) · [coding standards](CODING_STANDARDS.md) · [performance baseline](docs/performance.md).
 
 ## Signatures, plainly
 
