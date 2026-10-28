@@ -1,0 +1,43 @@
+appId: app.folio.reader
+productName: Folio
+copyright: Copyright © 2026 Folio contributors
+directories:
+  buildResources: build
+  output: release
+files:
+  - dist/**
+  - dist-electron/**
+  - package.json
+  - '!**/*.map'
+asar: true
+compression: maximum
+artifactName: '${productName}-${version}-${arch}.${ext}'
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  icon: build/icon.png
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Folio
+  uninstallDisplayName: Folio PDF Reader
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+portable:
+  artifactName: '${productName}-${version}-portable.${ext}'
+fileAssociations:
+  - ext: pdf
+    name: PDF Document
+    description: Portable Document Format
+    role: Viewer
+publish: null

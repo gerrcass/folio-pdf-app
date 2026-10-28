@@ -1,0 +1,117 @@
+.opening-overlay {
+  position: fixed;
+  inset: 36px 0 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  background: color-mix(in oklab, var(--bg) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.opening-card {
+  width: min(430px, calc(100vw - 32px));
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  padding: 15px 14px 15px 15px;
+}
+
+.opening-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.opening-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.opening-name {
+  font-size: 12.5px;
+  font-weight: 570;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.opening-stage {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.drop-overlay {
+  position: fixed;
+  inset: 44px;
+  z-index: 400;
+  border: 2px dashed var(--accent);
+  border-radius: 20px;
+  background: color-mix(in oklab, var(--accent-soft) 88%, transparent);
+  backdrop-filter: blur(3px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--accent-ink);
+  pointer-events: none;
+}
+
+.drop-overlay h2 {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 500;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.drop-overlay p {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.drop-overlay .drop-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  margin-bottom: 2px;
+}
+
+.boot-splash {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--ink-3);
+}
+
+.boot-splash-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 13px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+.boot-splash .brand-mark {
+  color: var(--ink);
+}
