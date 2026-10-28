@@ -80,10 +80,13 @@ export async function savePdfFile(name: string, data: ArrayBuffer): Promise<bool
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = name;
+  anchor.style.display = 'none';
   document.body.append(anchor);
   anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 5_000);
   return true;
 }
 

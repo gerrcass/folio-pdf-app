@@ -183,25 +183,34 @@ function configureSecurity(): void {
   });
 
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
-    if (permission !== 'media' || !isTrustedUrl(contents.getURL())) {
+    if (permission !== 'media') {
       callback(false);
       return;
     }
-    const mediaTypes = (details as { mediaTypes?: string[] }).mediaTypes ?? [];
-    if (mediaTypes.includes('audio')) {
+    const media = details as { mediaTypes?: string[]; securityOrigin?: string };
+    if (!isTrustedUrl(media.securityOrigin ?? contents.getURL())) {
       callback(false);
       return;
     }
-    if (mediaTypes.length > 0 && !mediaTypes.includes('video')) {
+    const mediaTypes = media.mediaTypes ?? [];
+    if (
+      mediaTypes.length === 0 ||
+      mediaTypes.includes('audio') ||
+      !mediaTypes.includes('video')
+    ) {
       callback(false);
       return;
     }
     callback(true);
   });
 
-  session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => {
-    return permission === 'media' && isTrustedUrl(requestingOrigin);
-  });
+  session.defaultSession.setPermissionCheckHandler(
+    (_contents, permission, requestingOrigin, details) => {
+      if (permission !== 'media' || details.isMainFrame === false) return false;
+      if (!isTrustedUrl(details.securityOrigin ?? requestingOrigin)) return false;
+      return details.mediaType === 'video';
+    },
+  );
 
   app.on('web-contents-created', (_event, contents) => {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));

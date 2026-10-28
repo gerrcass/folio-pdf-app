@@ -60,7 +60,13 @@ export function Modal({
           </h2>
           {subtitle ? <p className="modal-subtitle">{subtitle}</p> : null}
         </div>
-        <button className="icon-button modal-close" onClick={onClose} aria-label={closeLabel} type="button">
+        <button
+          className="icon-button modal-close"
+          onClick={onClose}
+          aria-label={closeLabel}
+          data-tooltip={closeLabel}
+          type="button"
+        >
           <X size={16} />
         </button>
       </header>

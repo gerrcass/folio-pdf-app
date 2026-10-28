@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePageRange } from '../src/pdf/print';
+import { buildPrintHtml, parsePageRange } from '../src/pdf/print';
 
 describe('print page ranges', () => {
   it('parses single pages, ranges, and comma-separated lists', () => {
@@ -13,5 +13,16 @@ describe('print page ranges', () => {
     expect(parsePageRange('5-2', 10)).toEqual([]);
     expect(parsePageRange('', 10)).toEqual([]);
     expect(parsePageRange('abc', 10)).toEqual([]);
+  });
+});
+
+describe('print layout', () => {
+  it('uses physical page dimensions instead of raster scale', () => {
+    const html = buildPrintHtml('A test', [
+      { dataUrl: 'data:image/jpeg;base64,AA==', widthPoints: 612, heightPoints: 792 },
+    ]);
+    expect(html).toContain('width:8.500in;height:auto');
+    expect(html).not.toContain('17.000in');
+    expect(html).toContain('@page { size: auto; margin: 0; }');
   });
 });

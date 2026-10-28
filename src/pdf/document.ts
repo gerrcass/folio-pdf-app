@@ -278,7 +278,10 @@ export class PdfDocumentSession {
             } satisfies DigitalSignatureInfo;
           }),
         )
-        .catch(() => []);
+        .catch((error) => {
+          this.signaturesPromise = null;
+          throw error;
+        });
     }
     return this.signaturesPromise;
   }

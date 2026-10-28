@@ -71,7 +71,9 @@ export function detectSignatureTargetsFromData(
 
   for (const item of textItems) {
     const text = item.str?.trim() ?? '';
-    if (!text || text.length > 80 || !LABEL_PATTERN.test(text)) continue;
+    const words = text.split(/\s+/).filter(Boolean);
+    if (!text || text.length > 48 || words.length > 5 || !LABEL_PATTERN.test(text)) continue;
+    if (/[.!?]\s*$/.test(text) && !/^sign here[.!]?$/i.test(text)) continue;
     const transform = item.transform;
     if (!transform || transform.length < 6) continue;
     const fontSize = Math.max(7, Math.abs(transform[3]) || Math.abs(transform[0]) || 10);

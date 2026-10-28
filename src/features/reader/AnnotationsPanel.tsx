@@ -51,7 +51,13 @@ export function AnnotationsPanel({
       <div className="panel-head">
         <span className="panel-title">Annotations</span>
         <span className="sidebar-count">{annotations.length}</span>
-        <button className="icon-button small" onClick={onClose} aria-label="Close annotations" type="button">
+        <button
+          className="icon-button small"
+          onClick={onClose}
+          aria-label="Close annotations"
+          data-tooltip="Close annotations"
+          type="button"
+        >
           <X size={14} />
         </button>
       </div>

@@ -16,6 +16,7 @@ interface DocumentInfoDialogProps {
   protectedDocument: boolean;
   annotations: Annotation[];
   digitalSignatures: DigitalSignatureInfo[];
+  signatureStatus: 'checking' | 'none' | 'present' | 'unavailable';
 }
 
 function parsePdfDate(value?: string): string {
@@ -46,6 +47,7 @@ export function DocumentInfoDialog({
   protectedDocument,
   annotations,
   digitalSignatures,
+  signatureStatus,
 }: DocumentInfoDialogProps) {
   return (
     <Modal
@@ -100,7 +102,14 @@ export function DocumentInfoDialog({
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
           <ShieldAlert size={15} style={{ flex: '0 0 auto', marginTop: 1 }} />
           <div>
-            {digitalSignatures.length > 0 ? (
+            {signatureStatus === 'checking' ? (
+              <>Checking for digital signatures…</>
+            ) : signatureStatus === 'unavailable' ? (
+              <>
+                <strong>Folio could not check for digital signatures.</strong> Editing or exporting may affect a
+                signature that could not be detected. This is not a statement that the document is unsigned.
+              </>
+            ) : digitalSignatures.length > 0 ? (
               <>
                 <strong>
                   {digitalSignatures.length} digital signature

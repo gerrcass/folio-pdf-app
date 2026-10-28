@@ -161,6 +161,7 @@ export function Library({
                   <button
                     className="recent-remove"
                     aria-label={`Remove ${document.title || document.name} from library`}
+                    data-tooltip="Remove from library"
                     onClick={() => setRemoveTarget(document)}
                     type="button"
                   >

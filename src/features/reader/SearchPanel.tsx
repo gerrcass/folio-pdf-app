@@ -40,6 +40,11 @@ export function SearchPanel({
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const active = document.querySelector('.search-result.active');
+    active?.scrollIntoView({ block: 'nearest' });
+  }, [activeMatchIndex]);
+
   const displayed = useMemo(() => {
     const matches: DisplayedMatch[] = [];
     results?.matches.slice(0, 240).forEach((match, index) => {
@@ -62,7 +67,13 @@ export function SearchPanel({
     <aside className="side-panel" aria-label="Search document">
       <div className="panel-head">
         <span className="panel-title">Search</span>
-        <button className="icon-button small" onClick={onClose} aria-label="Close search" type="button">
+        <button
+          className="icon-button small"
+          onClick={onClose}
+          aria-label="Close search"
+          data-tooltip="Close search"
+          type="button"
+        >
           <X size={14} />
         </button>
       </div>
@@ -92,6 +103,7 @@ export function SearchPanel({
             className="search-clear"
             onClick={() => onQueryChange('')}
             aria-label="Clear search"
+            data-tooltip="Clear search"
             type="button"
           >
             <X size={13} />
@@ -102,45 +114,41 @@ export function SearchPanel({
       <div className="search-meta">
         {hasQuery ? (
           <>
-            <span className="search-count">
+            <span className="search-count" aria-live="polite">
               {total === 0 ? '0' : `${Math.min(activeMatchIndex + 1, total)} / ${total}`}
             </span>
             <span>{total === 1 ? 'match' : 'matches'}</span>
+            <span className="grow" />
             {indexing ? (
               <>
-                <span className="grow" />
-                <span className="spinner" style={{ width: 10, height: 10 }} />
+                <span className="spinner" style={{ width: 10, height: 10 }} aria-hidden="true" />
                 <span>
                   {indexedPages}/{totalPages}
                 </span>
               </>
-            ) : (
-              <>
-                <span className="grow" />
-                <div className="search-nav">
-                  <button
-                    className="icon-button small"
-                    onClick={onPrevious}
-                    disabled={total === 0}
-                    aria-label="Previous match"
-                    data-tooltip="Previous match"
-                    type="button"
-                  >
-                    <ChevronUp size={14} />
-                  </button>
-                  <button
-                    className="icon-button small"
-                    onClick={onNext}
-                    disabled={total === 0}
-                    aria-label="Next match"
-                    data-tooltip="Next match"
-                    type="button"
-                  >
-                    <ChevronDown size={14} />
-                  </button>
-                </div>
-              </>
-            )}
+            ) : null}
+            <div className="search-nav">
+              <button
+                className="icon-button small"
+                onClick={onPrevious}
+                disabled={total === 0}
+                aria-label="Previous match"
+                data-tooltip="Previous match"
+                type="button"
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                className="icon-button small"
+                onClick={onNext}
+                disabled={total === 0}
+                aria-label="Next match"
+                data-tooltip="Next match"
+                type="button"
+              >
+                <ChevronDown size={14} />
+              </button>
+            </div>
           </>
         ) : (
           <span>Search the indexed text of this PDF.</span>

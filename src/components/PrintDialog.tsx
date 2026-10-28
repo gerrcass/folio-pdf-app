@@ -11,6 +11,7 @@ interface PrintDialogProps {
   session: PdfDocumentSession;
   annotations: Annotation[];
   currentPage: number;
+  viewerRotation?: number;
   onPrinted: (pageCount: number) => void;
 }
 
@@ -22,6 +23,7 @@ export function PrintDialog({
   session,
   annotations,
   currentPage,
+  viewerRotation = 0,
   onPrinted,
 }: PrintDialogProps) {
   const [mode, setMode] = useState<Mode>('all');
@@ -73,6 +75,7 @@ export function PrintDialog({
         pageIndices: requestedPages,
         annotations,
         includeAnnotations,
+        viewerRotation,
         signal: controller.signal,
         onProgress: (completed, total) => setProgress({ completed, total }),
       });
@@ -193,6 +196,10 @@ export function PrintDialog({
         />
         Include highlights, ink, notes, and signatures
       </label>
+
+      {mode === 'range' && range.trim() && requestedPages.length === 0 ? (
+        <div className="hint warning-text">That range does not contain any printable pages. Use a range such as 2-5 or 9.</div>
+      ) : null}
 
       {printing ? (
         <div className="progress" aria-label={`Preparing ${progress.completed} of ${progress.total} pages`}>

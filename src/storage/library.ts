@@ -27,22 +27,42 @@ export async function loadDocumentBytes(id: string): Promise<ArrayBuffer | null>
   return record?.bytes ?? null;
 }
 
-async function deleteRecords(ids: string[]): Promise<void> {
+async function deleteCachedBytes(
+  ids: string[],
+  options: { annotations: boolean; sessions: boolean },
+): Promise<void> {
   if (ids.length === 0) return;
   const db = await openDatabase();
-  const transaction = db.transaction(['documents', 'documentBytes', 'annotations'], 'readwrite');
+  const stores = ['documents', 'documentBytes'];
+  if (options.annotations) stores.push('annotations');
+  if (options.sessions) stores.push('sessions');
+  const transaction = db.transaction(stores, 'readwrite');
   const documents = transaction.objectStore('documents');
   const bytes = transaction.objectStore('documentBytes');
-  const annotations = transaction.objectStore('annotations');
+  const annotations = options.annotations ? transaction.objectStore('annotations') : null;
+  const sessions = options.sessions ? transaction.objectStore('sessions') : null;
   for (const id of ids) {
     documents.delete(id);
     bytes.delete(id);
-    annotations.delete(id);
+    annotations?.delete(id);
+  }
+  if (sessions) {
+    const session = await requestResult<{ id: string; documentId?: string } | undefined>(
+      sessions.get('last'),
+    );
+    if (session?.documentId && ids.includes(session.documentId)) sessions.delete('last');
   }
   await transactionDone(transaction);
 }
 
-export async function pruneLibrary(currentDocumentId?: string): Promise<RecentDocument[]> {
+/**
+ * Evicts cached documents while keeping annotation records. Annotations are
+ * keyed by the content fingerprint, so they come back if the user reopens the
+ * file. Only an explicit Remove from Library deletes annotation data.
+ */
+export async function pruneLibrary(
+  protectedDocumentIds: string[] = [],
+): Promise<RecentDocument[]> {
   const documents = await listRecentDocuments();
   const evicted: RecentDocument[] = [];
   let count = documents.length;
@@ -50,19 +70,27 @@ export async function pruneLibrary(currentDocumentId?: string): Promise<RecentDo
 
   for (const document of [...documents].reverse()) {
     if (count <= MAX_RECENT_DOCUMENTS && totalBytes <= MAX_LIBRARY_BYTES) break;
-    if (document.id === currentDocumentId) continue;
+    if (protectedDocumentIds.includes(document.id)) continue;
     evicted.push(document);
     count -= 1;
     totalBytes -= document.size;
   }
 
-  await deleteRecords(evicted.map((document) => document.id));
+  await deleteCachedBytes(
+    evicted.map((document) => document.id),
+    { annotations: false, sessions: true },
+  );
   return evicted;
+}
+
+export interface SaveDocumentOptions {
+  protectedDocumentIds?: string[];
 }
 
 export async function saveRecentDocument(
   document: RecentDocument,
   bytes: ArrayBuffer,
+  options: SaveDocumentOptions = {},
 ): Promise<LibrarySnapshot> {
   const db = await openDatabase();
   const write = async () => {
@@ -72,15 +100,16 @@ export async function saveRecentDocument(
     await transactionDone(transaction);
   };
 
+  const protectedIds = [...new Set([document.id, ...(options.protectedDocumentIds ?? [])])];
   try {
     await write();
   } catch (error) {
     if (!(error instanceof DOMException) || error.name !== 'QuotaExceededError') throw error;
-    await pruneLibrary(document.id);
+    await pruneLibrary(protectedIds);
     await write();
   }
 
-  const evicted = await pruneLibrary(document.id);
+  const evicted = await pruneLibrary(protectedIds);
   return { documents: await listRecentDocuments(), evicted };
 }
 
@@ -109,15 +138,7 @@ export async function saveThumbnail(id: string, thumbnail: string): Promise<void
 }
 
 export async function removeRecentDocument(id: string): Promise<void> {
-  const db = await openDatabase();
-  const transaction = db.transaction(['documents', 'documentBytes', 'annotations', 'sessions'], 'readwrite');
-  transaction.objectStore('documents').delete(id);
-  transaction.objectStore('documentBytes').delete(id);
-  transaction.objectStore('annotations').delete(id);
-  const sessionStore = transaction.objectStore('sessions');
-  const session = await requestResult<{ id: string; documentId?: string } | undefined>(sessionStore.get('last'));
-  if (session?.documentId === id) sessionStore.delete('last');
-  await transactionDone(transaction);
+  await deleteCachedBytes([id], { annotations: true, sessions: true });
 }
 
 export async function getLibrarySize(documents: RecentDocument[]): Promise<number> {

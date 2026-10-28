@@ -503,3 +503,11 @@
     font-size: 34px;
   }
 }
+
+@media (hover: none), (pointer: coarse) {
+  .recent-remove {
+    opacity: 1;
+    width: 28px;
+    height: 28px;
+  }
+}

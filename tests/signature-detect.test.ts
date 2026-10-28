@@ -50,3 +50,17 @@ describe('signature field suggestions', () => {
     expect(targets).toHaveLength(0);
   });
 });
+
+  it('does not mistake a prose sentence containing the word signature for a field', () => {
+    const targets = detectSignatureTargetsFromData(
+      [],
+      [
+        {
+          str: 'If a highlight or signature drifts here, geometry is wrong.',
+          transform: [10, 0, 0, 10, 70, 370],
+        },
+      ],
+      pageView,
+    );
+    expect(targets).toHaveLength(0);
+  });

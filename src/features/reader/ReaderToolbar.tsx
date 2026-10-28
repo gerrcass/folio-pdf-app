@@ -588,6 +588,7 @@ export function ReaderToolbar({
             onClick={() => setPopover(popover === 'more' ? null : 'more')}
             aria-label="More document actions"
             aria-expanded={popover === 'more'}
+            data-tooltip="More actions"
             type="button"
           >
             <MoreHorizontal size={16} />

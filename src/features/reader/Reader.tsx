@@ -13,9 +13,9 @@ import {
 import type { Annotation, HighlightColor, PdfPoint, PdfQuad, TextAnnotation } from '../../annotations/types';
 import { createAnnotationBase, HIGHLIGHT_COLORS, INK_COLORS, TEXT_COLORS } from '../../annotations/types';
 import { addAnnotations, createHistoryState, historyReducer, removeAnnotation, updateAnnotation } from '../../annotations/history';
+import { fitTextQuad } from '../../annotations/text-layout';
 import { useToast } from '../../components/Toast';
 import type { DigitalSignatureInfo } from '../../pdf/document';
-import { exportAnnotatedPdf, ExportError } from '../../pdf/export';
 import { findSignatureTargets, type SignatureTarget } from '../../pdf/signature-detect';
 import { quadFromScreenRect, type ScreenRect } from '../../pdf/geometry';
 import { SearchIndex, type SearchProgress, type SearchResultSet } from '../../pdf/search';
@@ -125,6 +125,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     done: false,
   });
   const [digitalSignatures, setDigitalSignatures] = useState<DigitalSignatureInfo[]>([]);
+  const [signatureCheck, setSignatureCheck] = useState<'checking' | 'none' | 'present' | 'unavailable'>('checking');
   const [signatureDialogOpen, setSignatureDialogOpen] = useState(false);
   const [signatureTargets, setSignatureTargets] = useState<SignatureTarget[]>([]);
   const [pendingSignature, setPendingSignature] = useState<PendingSignature | null>(null);
@@ -265,6 +266,17 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     anchorRef.current = null;
   }, [scale, rotation, spreadMode, rows, rowForPage, rowTop]);
 
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 759px)');
+    const collapse = () => {
+      if (query.matches) setSidebarVisible(false);
+    };
+    collapse();
+    query.addEventListener('change', collapse);
+    return () => query.removeEventListener('change', collapse);
+  }, []);
+
   useEffect(() => {
     const area = readingAreaRef.current;
     if (!area) return;
@@ -397,6 +409,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
           'error',
         );
       }
+      throw error;
     }
   }, [doc.session.fingerprint, notify]);
 
@@ -411,7 +424,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       saveTimerRef.current = null;
-      void persistAnnotations();
+      void persistAnnotations().catch(() => undefined);
     }, 350);
     return () => {
       if (saveTimerRef.current) {
@@ -511,9 +524,13 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     void doc.session
       .getDigitalSignatures()
       .then((signatures) => {
-        if (active) setDigitalSignatures(signatures);
+        if (!active) return;
+        setDigitalSignatures(signatures);
+        setSignatureCheck(signatures.length > 0 ? 'present' : 'none');
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setSignatureCheck('unavailable');
+      });
     return () => {
       active = false;
     };
@@ -540,7 +557,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
 
   const beginSignaturePlacement = useCallback(
     (dataUrl: string, remember: boolean) => {
-      const suppressed = digitalSignatures.length > 0;
+      const suppressed = signatureCheck !== 'none';
       const targets = suppressed ? [] : signatureTargets;
       const target = targets[0];
       let quad: PdfQuad;
@@ -573,7 +590,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
         label: target?.label,
       });
     },
-    [digitalSignatures.length, doc.session, page, rotation, scale, signatureTargets],
+    [doc.session, page, rotation, scale, signatureCheck, signatureTargets],
   );
 
   const changeSignatureTarget = () => {
@@ -701,7 +718,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
       kind: 'text',
       color: textColor,
       fontSize: textFontSize,
-      quad: textDraft.quad,
+      quad: fitTextQuad(textDraft.quad, text, textFontSize),
       text,
     };
     dispatch({ type: 'commit', annotations: addAnnotations(annotations, [annotation]) });
@@ -711,7 +728,10 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
 
   const updateSelected = (changes: Partial<Annotation>) => {
     if (!selectedAnnotation) return;
-    const updated = { ...selectedAnnotation, ...changes, updatedAt: Date.now() } as Annotation;
+    let updated = { ...selectedAnnotation, ...changes, updatedAt: Date.now() } as Annotation;
+    if (updated.kind === 'text' && ('fontSize' in changes || 'text' in changes)) {
+      updated = { ...updated, quad: fitTextQuad(updated.quad, updated.text, updated.fontSize) };
+    }
     dispatch({ type: 'commit', annotations: updateAnnotation(annotations, updated) });
   };
 
@@ -781,13 +801,13 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
     setExporting(true);
     try {
       await persistAnnotations();
+      const { exportAnnotatedPdf } = await import('../../pdf/export');
       const bytes = await exportAnnotatedPdf(doc.session.bytes, annotationsRef.current);
       const buffer = bytes.slice().buffer;
       const saved = await savePdfFile(filenameForExport(doc.recent.name), buffer);
       if (saved) notify('Annotated PDF exported.', 'success');
     } catch (error) {
-      if (error instanceof ExportError) notify(error.message, 'error');
-      else notify(error instanceof Error ? error.message : 'The PDF could not be exported.', 'error');
+      notify(error instanceof Error ? error.message : 'The PDF could not be exported.', 'error');
     } finally {
       setExporting(false);
     }
@@ -795,6 +815,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (window.document.querySelector('dialog[open]')) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       const mod = event.ctrlKey || event.metaKey;
@@ -1040,6 +1061,9 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
                     onSignatureQuadChange={(quad) => {
                       setPendingSignature((current) => (current ? { ...current, quad } : current));
                     }}
+                    onChangeAnnotation={(updated) => {
+                      dispatch({ type: 'commit', annotations: updateAnnotation(annotations, updated) });
+                    }}
                   />
                 ))}
               </div>
@@ -1253,9 +1277,10 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
         onClose={() => setSignatureDialogOpen(false)}
         onUse={(dataUrl, remember) => beginSignaturePlacement(dataUrl, remember)}
         hasDigitalSignatures={digitalSignatures.length > 0}
+        signatureStatus={signatureCheck}
         protectedDocument={doc.session.isProtected}
         signatureTargetCount={signatureTargets.length}
-        suggestionsSuppressed={digitalSignatures.length > 0}
+        suggestionsSuppressed={signatureCheck !== 'none'}
       />
       <DocumentInfoDialog
         open={infoOpen}
@@ -1269,6 +1294,7 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
         protectedDocument={doc.session.isProtected}
         annotations={annotations}
         digitalSignatures={digitalSignatures}
+        signatureStatus={signatureCheck}
       />
       <PrintDialog
         open={printOpen}
@@ -1276,7 +1302,10 @@ export const Reader = forwardRef<ReaderHandle, ReaderProps>(function Reader(
         session={doc.session}
         annotations={annotations}
         currentPage={page}
-        onPrinted={(count) => notify(`Printing ${count} ${count === 1 ? 'page' : 'pages'}.`, 'success')}
+        viewerRotation={rotation}
+        onPrinted={(count) =>
+          notify(`Print preview opened for ${count} ${count === 1 ? 'page' : 'pages'}.`, 'success')
+        }
       />
     </div>
   );

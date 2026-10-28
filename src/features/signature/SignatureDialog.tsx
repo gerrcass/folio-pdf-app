@@ -28,6 +28,7 @@ interface SignatureDialogProps {
   onClose: () => void;
   onUse: (dataUrl: string, remember: boolean, sourceLabel: string) => void;
   hasDigitalSignatures: boolean;
+  signatureStatus: 'checking' | 'none' | 'present' | 'unavailable';
   protectedDocument: boolean;
   signatureTargetCount: number;
   suggestionsSuppressed: boolean;
@@ -38,6 +39,7 @@ export function SignatureDialog({
   onClose,
   onUse,
   hasDigitalSignatures,
+  signatureStatus,
   protectedDocument,
   signatureTargetCount,
   suggestionsSuppressed,
@@ -59,10 +61,29 @@ export function SignatureDialog({
   const padRef = useRef<SignaturePadHandle>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const openRef = useRef(open);
+  const tabRef = useRef(tab);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraRequestRef = useRef(0);
   const cameraSupported = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia);
+  openRef.current = open;
+  tabRef.current = tab;
+
+  const stopCamera = () => {
+    cameraRequestRef.current += 1;
+    const stream = cameraStreamRef.current;
+    cameraStreamRef.current = null;
+    stopMediaStream(stream);
+    setCameraStream(null);
+    setCameraReady(false);
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      stopCamera();
+      return;
+    }
     setError(null);
     setNotice(null);
     setBusy(false);
@@ -73,28 +94,25 @@ export function SignatureDialog({
     setUploadName('');
     setCameraPreview(null);
     setCameraError(null);
+    setCameraReady(false);
     padRef.current?.clear();
     let active = true;
-    void loadRememberedSignature().then((signature) => {
-      if (!active) return;
-      setSaved(signature);
-      setTab(signature ? 'saved' : 'draw');
-    });
+    void loadRememberedSignature()
+      .then((signature) => {
+        if (!active) return;
+        setSaved(signature);
+        setTab(signature ? 'saved' : 'draw');
+      })
+      .catch(() => {
+        if (active) setError('The saved signature could not be read.');
+      });
     return () => {
       active = false;
-      stopMediaStream(cameraStream);
-      setCameraStream(null);
+      stopCamera();
     };
-    // The dialog resets once per open; cameraStream is intentionally not a reset trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Camera state is intentionally managed by refs so a pending permission
+    // request cannot outlive the dialog.
   }, [open]);
-
-  const stopCamera = () => {
-    stopMediaStream(cameraStream);
-    setCameraStream(null);
-    setCameraReady(false);
-    if (videoRef.current) videoRef.current.srcObject = null;
-  };
 
   useEffect(() => {
     if (!cameraStream) return;
@@ -108,27 +126,32 @@ export function SignatureDialog({
   }, [cameraStream, tab]);
 
   useEffect(() => {
-    if (tab !== 'camera' && cameraStream) {
-      stopMediaStream(cameraStream);
-      setCameraStream(null);
-      if (videoRef.current) videoRef.current.srcObject = null;
-    }
-  }, [tab, cameraStream]);
-
-  useEffect(() => {
-    return () => stopMediaStream(cameraStream);
-  }, [cameraStream]);
+    if (tab !== 'camera') stopCamera();
+    // stopCamera is intentionally ref-based.
+  }, [tab]);
 
   const startCamera = async () => {
     setCameraError(null);
+    const requestId = cameraRequestRef.current + 1;
+    cameraRequestRef.current = requestId;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
+      if (
+        !openRef.current ||
+        tabRef.current !== 'camera' ||
+        requestId !== cameraRequestRef.current
+      ) {
+        stopMediaStream(stream);
+        return;
+      }
+      cameraStreamRef.current = stream;
       setCameraReady(false);
       setCameraStream(stream);
     } catch (caught) {
+      if (requestId !== cameraRequestRef.current || !openRef.current) return;
       setCameraError(
         caught instanceof Error
           ? caught.name === 'NotAllowedError'
@@ -217,6 +240,19 @@ export function SignatureDialog({
     }
   };
 
+  const forgetSaved = async () => {
+    setError(null);
+    try {
+      await forgetRememberedSignature();
+      setSaved(null);
+      setConfirmForget(false);
+      setNotice('Saved signature removed from this device.');
+      setTab('draw');
+    } catch {
+      setError('The saved signature could not be removed. It is still stored on this device.');
+    }
+  };
+
   const footer = (
     <>
       <span className="hint" style={{ marginRight: 'auto', maxWidth: 360 }}>
@@ -248,7 +284,11 @@ export function SignatureDialog({
       title="Add a visual signature"
       subtitle={
         suggestionsSuppressed
-          ? 'Field suggestions are suppressed because this PDF already has digital signatures.'
+          ? hasDigitalSignatures
+            ? 'Field suggestions are suppressed because this PDF already has digital signatures.'
+            : signatureStatus === 'unavailable'
+              ? 'Field suggestions are disabled because Folio could not check for digital signatures.'
+              : 'Field suggestions are paused while Folio checks for digital signatures.'
           : signatureTargetCount > 0
             ? `We found ${signatureTargetCount} possible signature ${signatureTargetCount === 1 ? 'field' : 'fields'} on this page.`
             : 'No signature field was detected on this page. You can place the signature manually.'
@@ -256,6 +296,16 @@ export function SignatureDialog({
       className="signature-modal"
       footer={footer}
     >
+      {signatureStatus === 'unavailable' ? (
+        <div className="notice warn signature-warning">
+          <ShieldAlert size={16} style={{ flex: '0 0 auto', marginTop: 1 }} />
+          <div>
+            Folio could not check this PDF for existing digital signatures. Automatic field suggestions are
+            disabled. Editing may still affect a signature that could not be detected.
+          </div>
+        </div>
+      ) : null}
+
       {hasDigitalSignatures ? (
         <div className="notice warn signature-warning">
           <ShieldAlert size={16} style={{ flex: '0 0 auto', marginTop: 1 }} />
@@ -488,13 +538,7 @@ export function SignatureDialog({
                 <button
                   className="button sm ghost"
                   type="button"
-                  onClick={() => {
-                    setConfirmForget(false);
-                    setSaved(null);
-                    setNotice('Saved signature removed from this device.');
-                    void forgetRememberedSignature();
-                    setTab('draw');
-                  }}
+                  onClick={() => void forgetSaved()}
                 >
                   Forget
                 </button>

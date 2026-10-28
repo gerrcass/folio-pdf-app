@@ -10,6 +10,7 @@ import {
 } from 'pdf-lib';
 import type { Annotation } from '../src/annotations/types';
 import { exportAnnotatedPdf, ExportError } from '../src/pdf/export';
+import { quadFromScreenRect } from '../src/pdf/geometry';
 
 const sample = fs.readFileSync('tests/fixtures/sample.pdf');
 const original = sample.buffer.slice(sample.byteOffset, sample.byteOffset + sample.byteLength) as ArrayBuffer;
@@ -136,6 +137,44 @@ describe('native annotation export', () => {
     await parsed.loadingTask.destroy();
   });
 
+
+  it('orders QuadPoints correctly for a rotated page with a nonzero CropBox', async () => {
+    const rotatedBytes = fs.readFileSync('tests/fixtures/rotated-cropbox.pdf');
+    const bytes = rotatedBytes.buffer.slice(
+      rotatedBytes.byteOffset,
+      rotatedBytes.byteOffset + rotatedBytes.byteLength,
+    ) as ArrayBuffer;
+    const loadingTask = getDocument({ data: new Uint8Array(bytes.slice(0)), disableWorker: true } as never);
+    const source = await loadingTask.promise;
+    const page = await source.getPage(1);
+    const viewport = page.getViewport({ scale: 1.4, rotation: page.rotate });
+    const quad = quadFromScreenRect({ x: 40, y: 60, width: 180, height: 36 }, viewport as never);
+    await source.loadingTask.destroy();
+
+    const exported = await exportAnnotatedPdf(bytes, [
+      {
+        id: 'rotated-highlight',
+        kind: 'highlight',
+        pageIndex: 0,
+        color: 'sky',
+        quads: [quad],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    const { pdf, refs } = await annotsOf(exported);
+    const annot = pdf.context.lookup(refs[0], PDFDict);
+    const quadPoints = annot
+      .lookup(PDFName.of('QuadPoints'), PDFArray)
+      .asArray()
+      .map((value) => Number(value.toString()));
+    expect(quadPoints).toHaveLength(8);
+    // upper-left, upper-right, lower-left, lower-right
+    expect(quadPoints[1]).toBeGreaterThanOrEqual(quadPoints[5]);
+    expect(quadPoints[3]).toBeGreaterThanOrEqual(quadPoints[7]);
+    expect(quadPoints[0]).toBeLessThan(quadPoints[2]);
+    expect(quadPoints[4]).toBeLessThan(quadPoints[6]);
+  });
   it('is deterministic across repeated exports from the same source state', async () => {
     const first = await exportAnnotatedPdf(original, annotations);
     const second = await exportAnnotatedPdf(original, annotations);
@@ -150,6 +189,7 @@ describe('native annotation export', () => {
       secondAnnots.pdf.context.lookup(ref, PDFDict).get(PDFName.of('NM'))?.toString(),
     );
     expect(firstNames).toEqual(secondNames);
+    expect(Buffer.from(first).equals(Buffer.from(second))).toBe(true);
   });
 
   it('explains why an encrypted PDF cannot be written', async () => {

@@ -41,6 +41,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: sudo apt-get update && sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2t64 || sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2
+      - run: npx playwright install --with-deps chromium
+      - run: sudo apt-get install -y xvfb
       - run: xvfb-run -a npx playwright test --project=electron
 

@@ -4,6 +4,17 @@ import type { PdfDocumentSession } from '../../pdf/document';
 import { renderThumbnail } from '../../pdf/render';
 
 const cache = new Map<string, string>();
+const THUMBNAIL_CACHE_LIMIT = 160;
+
+function cacheThumbnail(key: string, value: string): void {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > THUMBNAIL_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
 let activeRenders = 0;
 const waiting: Array<() => void> = [];
 
@@ -58,7 +69,7 @@ function PageThumb({ session, pageIndex, current, onSelect }: ThumbnailProps) {
     })
       .then((dataUrl) => {
         if (cancelled) return;
-        cache.set(key, dataUrl);
+        cacheThumbnail(key, dataUrl);
         setSrc(dataUrl);
       })
       .catch(() => undefined);

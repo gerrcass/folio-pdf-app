@@ -97,6 +97,7 @@ export function App() {
   const queuedOpenRef = useRef<OpenFilePayload | null>(null);
   const explicitOpenRef = useRef(false);
   const viewRef = useRef<View>('boot');
+  const openDocumentIdRef = useRef<string | null>(null);
   const dragDepthRef = useRef(0);
 
   useEffect(() => {
@@ -151,6 +152,7 @@ export function App() {
   );
 
   const cancelOpening = useCallback(() => {
+    openTokenRef.current += 1;
     openAbortRef.current?.abort();
     resolvePassword(null);
     setOpening(null);
@@ -172,6 +174,17 @@ export function App() {
       if (options.explicit) explicitOpenRef.current = true;
       setOpening({ name: payload.name, stage: 'Identifying document…', cancel: cancelOpening });
       setFocusMode(false);
+      const previousReader = readerRef.current;
+      if (previousReader) {
+        try {
+          await previousReader.flush();
+        } catch {
+          notify('The current document could not be saved. Close the pending change or export before opening another PDF.', 'error');
+          setOpening(null);
+          setPicking(false);
+          return false;
+        }
+      }
       let loadedSession: PdfDocumentSession | null = null;
 
       try {
@@ -218,7 +231,7 @@ export function App() {
           options.preferredSession ??
           remembered ??
           (persisted?.documentId === fingerprint ? persisted : null);
-        const annotations = await loadAnnotations(fingerprint).catch(() => []);
+        const annotations = await loadAnnotations(fingerprint);
         const recent: RecentDocument = {
           id: fingerprint,
           name: payload.name,
@@ -232,7 +245,9 @@ export function App() {
 
         let snapshot: { documents: RecentDocument[]; evicted: RecentDocument[] } | null = null;
         try {
-          snapshot = await saveRecentDocument(recent, payload.data);
+          snapshot = await saveRecentDocument(recent, payload.data, {
+            protectedDocumentIds: [openDocumentIdRef.current].filter((id): id is string => Boolean(id)),
+          });
         } catch (error) {
           notify(
             error instanceof Error
@@ -242,7 +257,7 @@ export function App() {
           );
         }
 
-        if (token !== openTokenRef.current) {
+        if (controller.signal.aborted || token !== openTokenRef.current) {
           await pdfSession.destroy();
           return false;
         }
@@ -252,13 +267,14 @@ export function App() {
           setDocuments(snapshot.documents);
           if (snapshot.evicted.length > 0) {
             notify(
-              `Removed ${snapshot.evicted.length} older ${snapshot.evicted.length === 1 ? 'document' : 'documents'} from the local library to stay within its storage limit.`,
+              `Removed ${snapshot.evicted.length} older ${snapshot.evicted.length === 1 ? 'document' : 'documents'} from the local library. Their annotations are kept and will return if you reopen the files.`,
             );
           }
         } else {
           setDocuments((current) => [recent, ...current.filter((entry) => entry.id !== fingerprint)]);
         }
         sessionRef.current = initialSession;
+        openDocumentIdRef.current = fingerprint;
         setStoredSession(initialSession);
         setOpened({
           session: pdfSession,
@@ -350,6 +366,18 @@ export function App() {
     }
   }, [notify, openDocument, opening, picking]);
 
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'o') return;
+      if (viewRef.current !== 'library' || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      void openPicker();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [openPicker]);
+
   // Boot: resolve explicit launch intent before considering session restoration.
   useEffect(() => {
     if (bootRanRef.current) return;
@@ -384,10 +412,7 @@ export function App() {
 
       let launch: OpenFilePayload | null = null;
       try {
-        launch = await Promise.race([
-          consumeLaunchFile(),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
-        ]);
+        launch = await consumeLaunchFile();
       } catch (error) {
         explicitOpenRef.current = true;
         notify(error instanceof Error ? error.message : 'That PDF could not be opened.', 'error');
@@ -480,10 +505,17 @@ export function App() {
         }
       }
     } catch (error) {
-      notify(error instanceof Error ? error.message : 'Could not save the reading position.', 'error');
+      notify(
+        error instanceof Error
+          ? `Folio could not save your annotations: ${error.message}. Export the document before leaving.`
+          : 'Folio could not save your annotations. Export the document before leaving.',
+        'error',
+      );
+      return;
     }
     setFocusMode(false);
     setOpened(null);
+    openDocumentIdRef.current = null;
     setDirty(false);
     setView('library');
   }, [notify]);

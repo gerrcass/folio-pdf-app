@@ -13,7 +13,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:4280',
     viewport: { width: 1440, height: 960 },
     acceptDownloads: true,
     permissions: ['camera'],
@@ -30,8 +30,8 @@ export default defineConfig({
   },
   webServer: {
     command: 'node scripts/e2e-preview.mjs',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
+    url: 'http://127.0.0.1:4280',
+    reuseExistingServer: false,
     timeout: 180_000,
   },
   projects: [

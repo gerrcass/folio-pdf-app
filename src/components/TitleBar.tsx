@@ -128,6 +128,7 @@ export function TitleBar({
             className="window-control"
             onClick={() => windowControls('minimize')}
             aria-label="Minimize window"
+            data-tooltip="Minimize"
             type="button"
           >
             <Minus size={14} />
@@ -136,6 +137,7 @@ export function TitleBar({
             className="window-control"
             onClick={() => windowControls('maximize')}
             aria-label={maximized ? 'Restore window' : 'Maximize window'}
+            data-tooltip={maximized ? 'Restore' : 'Maximize'}
             type="button"
           >
             {maximized ? <Copy size={12} /> : <Square size={11} />}
@@ -144,6 +146,7 @@ export function TitleBar({
             className="window-control close"
             onClick={() => windowControls('close')}
             aria-label="Close window"
+            data-tooltip="Close"
             type="button"
           >
             <X size={15} />

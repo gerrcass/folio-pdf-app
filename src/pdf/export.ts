@@ -1,3 +1,5 @@
+import fontkit from '@pdf-lib/fontkit';
+import noteFontUrl from '../../assets/fonts/DejaVuSans.ttf?url';
 import {
   PDFDict,
   PDFDocument,
@@ -96,6 +98,7 @@ function addAnnotation(
     extra?: Record<string, unknown>;
   },
   id: string,
+  modifiedAt: number,
 ): void {
   const dict: Record<string, unknown> = {
     Type: 'Annot',
@@ -109,7 +112,7 @@ function addAnnotation(
     F: 4,
     NM: PDFString.of(id),
     T: PDFString.of('Folio'),
-    M: pdfDate(new Date()),
+    M: pdfDate(new Date(modifiedAt)),
     AP: { N: annotation.appearance },
     ...annotation.extra,
   };
@@ -125,8 +128,14 @@ function quadPath(quad: PdfQuad): string {
 function pdfQuadPoints(quads: PdfQuad[]): number[] {
   const flat: number[] = [];
   for (const quad of quads) {
-    // Upper-left, upper-right, lower-left, lower-right.
-    flat.push(quad.p3.x, quad.p3.y, quad.p2.x, quad.p2.y, quad.p0.x, quad.p0.y, quad.p1.x, quad.p1.y);
+    // PDF QuadPoints order is upper-left, upper-right, lower-left, lower-right
+    // in default user space (y up), which is not necessarily our screen-derived
+    // p3/p2/p0/p1 order after page or viewer rotation.
+    const points = [quad.p0, quad.p1, quad.p2, quad.p3];
+    const descending = [...points].sort((a, b) => b.y - a.y || a.x - b.x);
+    const upper = descending.slice(0, 2).sort((a, b) => a.x - b.x);
+    const lower = descending.slice(2).sort((a, b) => a.x - b.x);
+    flat.push(upper[0].x, upper[0].y, upper[1].x, upper[1].y, lower[0].x, lower[0].y, lower[1].x, lower[1].y);
   }
   return flat;
 }
@@ -169,6 +178,7 @@ function exportHighlight(
       },
     },
     annotation.id,
+    annotation.updatedAt || annotation.createdAt,
   );
 }
 
@@ -221,6 +231,7 @@ function exportInk(
       },
     },
     annotation.id,
+    annotation.updatedAt || annotation.createdAt,
   );
 }
 
@@ -249,31 +260,52 @@ function exportText(
   font: PDFFont,
 ): void {
   const color = hexToRgb(annotation.color);
-  const width = quadWidth(annotation.quad);
-  const height = quadHeight(annotation.quad);
-  if (width <= 0 || height <= 0) return;
+  const originalWidth = quadWidth(annotation.quad);
+  const originalHeight = quadHeight(annotation.quad);
+  if (originalWidth <= 0 || originalHeight <= 0) return;
   const padding = 6;
   const lines = annotation.text
     .split('\n')
-    .flatMap((line) => wrapText(line, font, annotation.fontSize, Math.max(16, width - padding * 2)));
+    .flatMap((line) => wrapText(line, font, annotation.fontSize, Math.max(16, originalWidth - padding * 2)));
   const leading = annotation.fontSize * 1.35;
+  const requiredHeight = padding * 2 + lines.length * leading;
+  let quad = annotation.quad;
+  if (requiredHeight > originalHeight) {
+    const down = {
+      x: (annotation.quad.p0.x - annotation.quad.p3.x) / originalHeight,
+      y: (annotation.quad.p0.y - annotation.quad.p3.y) / originalHeight,
+    };
+    quad = {
+      ...quad,
+      p0: {
+        x: annotation.quad.p3.x + down.x * requiredHeight,
+        y: annotation.quad.p3.y + down.y * requiredHeight,
+      },
+      p1: {
+        x: annotation.quad.p2.x + down.x * requiredHeight,
+        y: annotation.quad.p2.y + down.y * requiredHeight,
+      },
+    };
+  }
+  const height = quadHeight(quad);
+  const width = quadWidth(quad);
   const xAxis = {
-    x: (annotation.quad.p2.x - annotation.quad.p3.x) / width,
-    y: (annotation.quad.p2.y - annotation.quad.p3.y) / width,
+    x: (quad.p2.x - quad.p3.x) / width,
+    y: (quad.p2.y - quad.p3.y) / width,
   };
   const yAxisDown = {
-    x: (annotation.quad.p0.x - annotation.quad.p3.x) / height,
-    y: (annotation.quad.p0.y - annotation.quad.p3.y) / height,
+    x: (quad.p0.x - quad.p3.x) / height,
+    y: (quad.p0.y - quad.p3.y) / height,
   };
   const start = {
-    x: annotation.quad.p3.x + xAxis.x * padding + yAxisDown.x * (padding + annotation.fontSize),
-    y: annotation.quad.p3.y + xAxis.y * padding + yAxisDown.y * (padding + annotation.fontSize),
+    x: quad.p3.x + xAxis.x * padding + yAxisDown.x * (padding + annotation.fontSize),
+    y: quad.p3.y + xAxis.y * padding + yAxisDown.y * (padding + annotation.fontSize),
   };
-  const bbox = quadBBox(annotation.quad);
+  const bbox = quadBBox(quad);
   const content = [
     'q',
     '0.996 0.984 0.955 rg',
-    `${quadPath(annotation.quad)} f`,
+    `${quadPath(quad)} f`,
     'Q',
     'q',
     `${color.r.toFixed(3)} ${color.g.toFixed(3)} ${color.b.toFixed(3)} rg`,
@@ -305,7 +337,7 @@ function exportText(
         Contents: PDFString.of(annotation.text),
         C: [color.r, color.g, color.b],
         DA: PDFString.of(
-          `/Helv ${annotation.fontSize.toFixed(2)} Tf ${color.r.toFixed(3)} ${color.g.toFixed(
+          `/F1 ${annotation.fontSize.toFixed(2)} Tf ${color.r.toFixed(3)} ${color.g.toFixed(
             3,
           )} ${color.b.toFixed(3)} rg`,
         ),
@@ -314,6 +346,7 @@ function exportText(
       },
     },
     annotation.id,
+    annotation.updatedAt || annotation.createdAt,
   );
 }
 
@@ -367,6 +400,7 @@ async function exportSignature(
       },
     },
     annotation.id,
+    annotation.updatedAt || annotation.createdAt,
   );
 }
 
@@ -381,9 +415,26 @@ function ensureFreeTextResources(pdfDoc: PDFDocument, font: PDFFont): void {
   }
   const dr = acroForm.lookupMaybe(PDFName.of('DR'), PDFDict) ?? context.obj({});
   const fontDict = dr.lookupMaybe(PDFName.of('Font'), PDFDict) ?? context.obj({});
-  fontDict.set(PDFName.of('Helv'), font.ref);
+  fontDict.set(PDFName.of('F1'), font.ref);
   dr.set(PDFName.of('Font'), fontDict);
   acroForm.set(PDFName.of('DR'), dr);
+}
+
+let noteFontBytes: Promise<ArrayBuffer> | null = null;
+
+async function noteFont(pdfDoc: PDFDocument): Promise<PDFFont> {
+  try {
+    noteFontBytes ??= fetch(noteFontUrl).then((response) => {
+      if (!response.ok) throw new Error('Font asset unavailable');
+      return response.arrayBuffer();
+    });
+    const bytes = await noteFontBytes;
+    pdfDoc.registerFontkit(fontkit);
+    return await pdfDoc.embedFont(new Uint8Array(bytes), { subset: true });
+  } catch {
+    noteFontBytes = null;
+    return pdfDoc.embedFont(StandardFonts.Helvetica);
+  }
 }
 
 export async function exportAnnotatedPdf(
@@ -405,7 +456,7 @@ export async function exportAnnotatedPdf(
     throw new ExportError('invalid', 'This PDF could not be prepared for export.');
   }
 
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const font = await noteFont(pdfDoc);
   ensureFreeTextResources(pdfDoc, font);
   const pages = pdfDoc.getPages();
   for (const annotation of annotations) {

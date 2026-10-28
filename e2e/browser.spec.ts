@@ -97,6 +97,20 @@ test('search finds matches, navigates, and explains an empty result', async ({ p
   await page.waitForTimeout(600);
   await expect(page.locator('.page-input')).toHaveValue('4');
 
+  await page.locator('.zoom-value').click();
+  await page.getByRole('button', { name: '200%' }).click();
+  await input.fill('Folio will still ask you');
+  await expect(page.locator('.search-result').first()).toContainText('Folio will still ask you', { timeout: 20_000 });
+  await page.locator('.search-result').first().click();
+  await page.waitForTimeout(1200);
+  await expect(page.locator('.page-input')).toHaveValue('10');
+  const anchor = await page.locator('.search-anchor').boundingBox();
+  const readingArea = await page.locator('.reading-area').boundingBox();
+  expect(anchor).not.toBeNull();
+  expect(readingArea).not.toBeNull();
+  expect(anchor!.y).toBeGreaterThanOrEqual(readingArea!.y);
+  expect(anchor!.y).toBeLessThanOrEqual(readingArea!.y + readingArea!.height);
+
   await input.fill('a phrase that is not present anywhere in this document');
   await expect(page.locator('.search-empty')).toContainText('No matches', { timeout: 20_000 });
 });
@@ -122,6 +136,24 @@ test('highlight, ink, note, signature, native export, and session restore', asyn
   await expect(page.locator('.annotation-note')).toHaveCount(0);
   await page.keyboard.press('Control+Shift+z');
   await expect(page.locator('.annotation-note')).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Select annotations' }).click();
+  const note = page.locator('.annotation-note');
+  const noteBefore = await note.boundingBox();
+  expect(noteBefore).not.toBeNull();
+  await page.mouse.move(noteBefore!.x + 40, noteBefore!.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(noteBefore!.x + 100, noteBefore!.y + 60, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  const noteMoved = await note.boundingBox();
+  expect(noteMoved!.x).toBeGreaterThan(noteBefore!.x + 20);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(400);
+  const noteUndone = await note.boundingBox();
+  expect(noteUndone!.x).toBeCloseTo(noteBefore!.x, 0);
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForTimeout(300);
 
   await addTypedSignature(page, 'Ada Lovelace');
   await expect(page.locator('.annotation-signature')).toHaveCount(1);
@@ -382,4 +414,103 @@ test('small browser windows keep the reader usable and collapse the thumbnail ra
   await expect(page.locator('.reading-area')).toBeVisible();
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: test.info().outputPath('mobile-reader.png') });
+});
+
+test('signature preview and approved stamp agree on a rotated page', async ({ page }) => {
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.rotated);
+  await page.getByRole('button', { name: 'Add a signature' }).click();
+  await page.getByRole('tab', { name: 'Type' }).click();
+  await page.getByRole('textbox', { name: 'Typed signature text' }).fill('Ada Lovelace');
+  await page.getByRole('button', { name: 'Continue to placement' }).click();
+  const preview = page.locator('.signature-preview');
+  await expect(preview).toBeVisible();
+  const previewBox = await preview.boundingBox();
+  await page.getByRole('button', { name: 'Approve and add signature' }).click();
+  await expect(page.locator('.annotation-signature')).toHaveCount(1);
+  const stampBox = await page.locator('.annotation-signature').boundingBox();
+  expect(previewBox).not.toBeNull();
+  expect(stampBox).not.toBeNull();
+  expect(Math.abs(stampBox!.x - previewBox!.x)).toBeLessThan(4);
+  expect(Math.abs(stampBox!.y - previewBox!.y)).toBeLessThan(4);
+  expect(Math.abs(stampBox!.width - previewBox!.width)).toBeLessThan(4);
+  expect(Math.abs(stampBox!.height - previewBox!.height)).toBeLessThan(4);
+});
+
+test('closing the signature dialog while camera permission is pending stops the stream', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    (window as unknown as { __lateStopped: number }).__lateStopped = 0;
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const stream = await original(constraints);
+      for (const track of stream.getTracks()) {
+        const stop = track.stop.bind(track);
+        track.stop = () => {
+          (window as unknown as { __lateStopped: number }).__lateStopped += 1;
+          stop();
+        };
+      }
+      return stream;
+    };
+  });
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await page.getByRole('button', { name: 'Add a signature' }).click();
+  await page.getByRole('tab', { name: 'Camera' }).click();
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await page.locator('dialog[open]').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.waitForTimeout(1600);
+  expect(await page.evaluate(() => (window as unknown as { __lateStopped: number }).__lateStopped)).toBeGreaterThan(0);
+  await expect(page.locator('.signature-placement-bar')).toHaveCount(0);
+});
+
+test('long text notes grow instead of silently clipping', async ({ page }) => {
+  await installExportCapture(page);
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await goToPage(page, 2);
+  await activateText(page);
+  const longText =
+    'This note is deliberately long so the annotation must grow to fit all of its content. '.repeat(9) +
+    'The final sentence must remain visible.';
+  await addTextNote(page, 1, 220, 420, longText);
+  const note = page.locator('.annotation-note');
+  await expect(note).toHaveCount(1);
+  const dimensions = await note.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(dimensions.scrollHeight).toBeLessThanOrEqual(dimensions.clientHeight + 1);
+  const exported = await exportBytes(page);
+  const pdf = await PDFDocument.load(exported);
+  const annotations = pdf.getPage(1).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+  const freeText = annotations?.asArray().find((ref) => {
+    const object = pdf.context.lookup(ref, PDFDict);
+    return object.get(PDFName.of('Subtype'))?.toString() === '/FreeText';
+  });
+  expect(freeText).toBeDefined();
+  const contents = pdf.context.lookup(freeText!, PDFDict).get(PDFName.of('Contents'))?.toString() ?? '';
+  expect(contents).toContain('The final sentence must remain visible.');
+});
+
+test('the library honors the Ctrl+O shortcut it advertises', async ({ page }) => {
+  await gotoLibrary(page);
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('Control+o');
+  await (await chooser).setFiles(fixtures.sample);
+  await expect(page.locator('.reader')).toBeVisible({ timeout: 30_000 });
+});
+
+test('the desktop minimum width keeps the thumbnail rail out of the page', async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 800 });
+  await gotoLibrary(page);
+  await openFixture(page, fixtures.sample);
+  await expect(page.locator('.thumb-sidebar')).toBeVisible();
+  const sidebar = await page.locator('.thumb-sidebar').boundingBox();
+  const frame = await page.locator('[data-page-index="0"]').boundingBox();
+  expect(sidebar).not.toBeNull();
+  expect(frame).not.toBeNull();
+  expect(frame!.x).toBeGreaterThanOrEqual(sidebar!.x + sidebar!.width - 1);
+  await page.screenshot({ path: test.info().outputPath('desktop-min-width.png') });
 });

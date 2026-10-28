@@ -9,6 +9,7 @@ import {
   quadFromScreenRect,
   quadToCssStyle,
   quadToScreen,
+  translateQuad,
   type ScreenPoint,
   type ScreenRect,
 } from '../../pdf/geometry';
@@ -22,6 +23,8 @@ import {
 import { clearPageSearchRanges, findTextRanges, setPageSearchRanges } from './search-highlights';
 
 export type { ReaderTool } from './types';
+
+type BoxAnnotation = Extract<Annotation, { kind: 'text' | 'signature' }>;
 
 export interface TextDraft {
   pageIndex: number;
@@ -61,6 +64,7 @@ interface PageViewProps {
   onSubmitText: (text: string) => void;
   onCancelText: () => void;
   onSignatureQuadChange: (quad: PdfQuad) => void;
+  onChangeAnnotation: (annotation: Annotation) => void;
 }
 
 function clampRect(rect: ScreenRect, width: number, height: number): ScreenRect {
@@ -102,6 +106,7 @@ export function PageView({
   onSubmitText,
   onCancelText,
   onSignatureQuadChange,
+  onChangeAnnotation,
 }: PageViewProps) {
   const page = session.pages[pageIndex];
   const frameRef = useRef<HTMLDivElement>(null);
@@ -116,22 +121,40 @@ export function PageView({
     startX: number;
     startY: number;
     rect: ScreenRect;
+    bbox: ScreenRect;
+    screenQuad: Record<keyof PdfQuad, ScreenPoint>;
   } | null>(null);
   const [visible, setVisible] = useState(false);
+  const [renderScale, setRenderScale] = useState(scale);
   const [textVersion, setTextVersion] = useState(0);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [hasPainted, setHasPainted] = useState(false);
   const [previewRect, setPreviewRect] = useState<ScreenRect | null>(null);
+  const [previewQuad, setPreviewQuad] = useState<PdfQuad | null>(null);
+  const [searchAnchor, setSearchAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [liveEdit, setLiveEdit] = useState<{ id: string; quad: PdfQuad } | null>(null);
+  const annotationDragRef = useRef<{
+    mode: 'move' | 'resize';
+    annotation: BoxAnnotation;
+    start: ScreenPoint;
+    screenQuad: Record<keyof PdfQuad, ScreenPoint>;
+    bbox: ScreenRect;
+    moved: boolean;
+  } | null>(null);
 
   const viewport = useMemo(() => {
     if (!page) return null;
     return page.getViewport({ scale, rotation: page.rotate + rotation });
   }, [page, scale, rotation]);
+  const canvasViewport = useMemo(() => {
+    if (!page) return null;
+    return page.getViewport({ scale: renderScale, rotation: page.rotate + rotation });
+  }, [page, renderScale, rotation]);
 
   const width = viewport?.width ?? 0;
   const height = viewport?.height ?? 0;
   const hostDpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
-  const renderKey = `${scale.toFixed(4)}:${rotation}:${Math.min(hostDpr, 2)}`;
+  const renderKey = `${renderScale.toFixed(4)}:${rotation}:${Math.min(hostDpr, 2)}`;
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -159,8 +182,13 @@ export function PageView({
   }, []);
 
   useEffect(() => {
+    const timer = setTimeout(() => setRenderScale(scale), 140);
+    return () => clearTimeout(timer);
+  }, [scale]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !page || !viewport) return;
+    if (!canvas || !page || !canvasViewport) return;
     setCanvasVisible(canvas, visible);
     if (!visible) return;
     if (canvas.dataset.renderKey === renderKey && canvas.width > 0) {
@@ -169,7 +197,7 @@ export function PageView({
     }
     const controller = new AbortController();
     setRenderError(null);
-    void renderPageToCanvas(page, viewport, canvas, hostDpr, controller.signal)
+    void renderPageToCanvas(page, canvasViewport, canvas, hostDpr, controller.signal)
       .then((painted) => {
         if (painted && !controller.signal.aborted) {
           canvas.dataset.renderKey = renderKey;
@@ -189,7 +217,7 @@ export function PageView({
         setRenderError(error instanceof Error ? error.message : 'This page could not be rendered.');
       });
     return () => controller.abort();
-  }, [visible, page, viewport, renderKey, hostDpr, pageIndex]);
+  }, [visible, page, canvasViewport, renderKey, hostDpr, pageIndex]);
 
 
   useEffect(() => {
@@ -273,8 +301,34 @@ export function PageView({
         ? ranges[activePageOrdinal]
         : undefined;
     setPageSearchRanges(pageIndex, ranges, active);
-    return () => clearPageSearchRanges(pageIndex);
+    if (active) {
+      const rangeRect = active.getBoundingClientRect();
+      const frameRect = frameRef.current?.getBoundingClientRect();
+      if (frameRect) {
+        setSearchAnchor({ x: rangeRect.left - frameRect.left, y: rangeRect.top - frameRect.top });
+      }
+    } else {
+      setSearchAnchor(null);
+    }
+    return () => {
+      clearPageSearchRanges(pageIndex);
+      setSearchAnchor(null);
+    };
   }, [textVersion, searchQuery, searchCaseSensitive, activePageOrdinal, visible, pageIndex]);
+
+
+  useEffect(() => {
+    if (!searchAnchor || activePageOrdinal === null) return;
+    const area = scrollRoot.current;
+    const frame = frameRef.current;
+    if (!area || !frame) return;
+    const frameRect = frame.getBoundingClientRect();
+    const areaRect = area.getBoundingClientRect();
+    const targetTop = frameRect.top + searchAnchor.y;
+    if (targetTop < areaRect.top + 64 || targetTop > areaRect.bottom - 72) {
+      area.scrollTop += targetTop - areaRect.top - area.clientHeight * 0.32;
+    }
+  }, [activePageOrdinal, scrollRoot, searchAnchor]);
 
   useEffect(() => {
     const canvas = inkCanvasRef.current;
@@ -298,16 +352,20 @@ export function PageView({
   useEffect(() => {
     if (!signaturePreview || signaturePreview.pageIndex !== pageIndex || !viewport) {
       setPreviewRect(null);
+      setPreviewQuad(null);
       return;
     }
     const screen = quadToScreen(signaturePreview.quad, viewport);
+    const xs = [screen.p0.x, screen.p1.x, screen.p2.x, screen.p3.x];
+    const ys = [screen.p0.y, screen.p1.y, screen.p2.y, screen.p3.y];
+    setPreviewQuad(signaturePreview.quad);
     setPreviewRect(
       clampRect(
         {
-          x: screen.p3.x,
-          y: screen.p3.y,
-          width: Math.hypot(screen.p2.x - screen.p3.x, screen.p2.y - screen.p3.y),
-          height: Math.hypot(screen.p0.x - screen.p3.x, screen.p0.y - screen.p3.y),
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
         },
         width,
         height,
@@ -338,6 +396,94 @@ export function PageView({
     return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
+  const beginAnnotationDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    annotation: BoxAnnotation,
+    mode: 'move' | 'resize',
+  ) => {
+    if (annotation.kind !== 'text' && annotation.kind !== 'signature') return;
+    const point = localPoint(event.clientX, event.clientY);
+    if (!point) return;
+    const screenQuad = quadToScreen(annotation.quad, viewport);
+    const xs = [screenQuad.p0.x, screenQuad.p1.x, screenQuad.p2.x, screenQuad.p3.x];
+    const ys = [screenQuad.p0.y, screenQuad.p1.y, screenQuad.p2.y, screenQuad.p3.y];
+    const bbox = {
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      width: Math.max(...xs) - Math.min(...xs),
+      height: Math.max(...ys) - Math.min(...ys),
+    };
+    annotationDragRef.current = {
+      mode,
+      annotation,
+      start: point,
+      screenQuad,
+      bbox,
+      moved: false,
+    };
+    setLiveEdit({ id: annotation.id, quad: annotation.quad });
+    event.preventDefault();
+    event.stopPropagation();
+    surfaceRef.current?.setPointerCapture(event.pointerId);
+  };
+
+  const updateAnnotationDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = annotationDragRef.current;
+    if (!drag) return;
+    const point = localPoint(event.clientX, event.clientY);
+    if (!point) return;
+    const dx = point.x - drag.start.x;
+    const dy = point.y - drag.start.y;
+    if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+    if (drag.mode === 'move') {
+      const [startX, startY] = viewport.convertToPdfPoint(drag.start.x, drag.start.y) as [number, number];
+      const [endX, endY] = viewport.convertToPdfPoint(point.x, point.y) as [number, number];
+      setLiveEdit({
+        id: drag.annotation.id,
+        quad: translateQuad(drag.annotation.quad, endX - startX, endY - startY),
+      });
+      return;
+    }
+    const newWidth = Math.max(60, drag.bbox.width + dx);
+    const newHeight = Math.max(30, drag.bbox.height + dy);
+    const scaleX = newWidth / Math.max(drag.bbox.width, 1);
+    const scaleY = newHeight / Math.max(drag.bbox.height, 1);
+    const mapPoint = (value: ScreenPoint): ScreenPoint => ({
+      x: drag.bbox.x + (value.x - drag.bbox.x) * scaleX,
+      y: drag.bbox.y + (value.y - drag.bbox.y) * scaleY,
+    });
+    const mapped = {
+      p0: mapPoint(drag.screenQuad.p0),
+      p1: mapPoint(drag.screenQuad.p1),
+      p2: mapPoint(drag.screenQuad.p2),
+      p3: mapPoint(drag.screenQuad.p3),
+    };
+    const toPdf = (value: ScreenPoint) => {
+      const [x, y] = viewport.convertToPdfPoint(value.x, value.y) as [number, number];
+      return { x, y };
+    };
+    setLiveEdit({
+      id: drag.annotation.id,
+      quad: { p0: toPdf(mapped.p0), p1: toPdf(mapped.p1), p2: toPdf(mapped.p2), p3: toPdf(mapped.p3) },
+    });
+  };
+
+  const finishAnnotationDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = annotationDragRef.current;
+    if (!drag) return;
+    const edit = liveEdit;
+    annotationDragRef.current = null;
+    setLiveEdit(null);
+    try {
+      surfaceRef.current?.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture may already be released.
+    }
+    if (drag.moved && edit) {
+      onChangeAnnotation({ ...drag.annotation, quad: edit.quad, updatedAt: Date.now() } as Annotation);
+    }
+  };
+
   const handleSurfacePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const point = localPoint(event.clientX, event.clientY);
@@ -345,6 +491,9 @@ export function PageView({
     if (tool === 'select') {
       const hit = annotationAtPoint(pageAnnotations, pageIndex, point, viewport);
       onSelect(hit?.id ?? null);
+      if (hit && (hit.kind === 'text' || hit.kind === 'signature')) {
+        beginAnnotationDrag(event, hit, 'move');
+      }
       return;
     }
     if (tool === 'text') {
@@ -419,11 +568,22 @@ export function PageView({
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    const screenQuad = signaturePreview ? quadToScreen(signaturePreview.quad, viewport) : null;
+    if (!screenQuad) return;
+    const xs = [screenQuad.p0.x, screenQuad.p1.x, screenQuad.p2.x, screenQuad.p3.x];
+    const ys = [screenQuad.p0.y, screenQuad.p1.y, screenQuad.p2.y, screenQuad.p3.y];
     previewDragRef.current = {
       mode,
       startX: event.clientX,
       startY: event.clientY,
       rect: previewRect,
+      bbox: {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys),
+      },
+      screenQuad,
     };
   };
 
@@ -433,30 +593,79 @@ export function PageView({
     event.preventDefault();
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
-    if (drag.mode === 'move') {
-      setPreviewRect(
-        clampRect({ ...drag.rect, x: drag.rect.x + dx, y: drag.rect.y + dy }, width, height),
-      );
-    } else {
-      setPreviewRect(
-        clampRect({ ...drag.rect, width: drag.rect.width + dx, height: drag.rect.height + dy }, width, height),
-      );
-    }
+    const nextRect =
+      drag.mode === 'move'
+        ? clampRect({ ...drag.rect, x: drag.rect.x + dx, y: drag.rect.y + dy }, width, height)
+        : clampRect(
+            { ...drag.rect, width: drag.rect.width + dx, height: drag.rect.height + dy },
+            width,
+            height,
+          );
+    setPreviewRect(nextRect);
+    const scaleX = nextRect.width / Math.max(drag.bbox.width, 1);
+    const scaleY = nextRect.height / Math.max(drag.bbox.height, 1);
+    const mapPoint = (value: ScreenPoint): ScreenPoint => ({
+      x: nextRect.x + (value.x - drag.bbox.x) * scaleX,
+      y: nextRect.y + (value.y - drag.bbox.y) * scaleY,
+    });
+    const toPdf = (value: ScreenPoint) => {
+      const [x, y] = viewport.convertToPdfPoint(value.x, value.y) as [number, number];
+      return { x, y };
+    };
+    setPreviewQuad({
+      p0: toPdf(mapPoint(drag.screenQuad.p0)),
+      p1: toPdf(mapPoint(drag.screenQuad.p1)),
+      p2: toPdf(mapPoint(drag.screenQuad.p2)),
+      p3: toPdf(mapPoint(drag.screenQuad.p3)),
+    });
   };
 
   const finishPreviewDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (!previewDragRef.current || !previewRect) return;
+    const drag = previewDragRef.current;
+    if (!drag || !previewRect) return;
     previewDragRef.current = null;
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
       // Pointer capture may already be released.
     }
-    onSignatureQuadChange(quadFromScreenRect(previewRect, viewport));
+    const scaleX = previewRect.width / Math.max(drag.bbox.width, 1);
+    const scaleY = previewRect.height / Math.max(drag.bbox.height, 1);
+    const mapPoint = (value: ScreenPoint): ScreenPoint => ({
+      x: previewRect.x + (value.x - drag.bbox.x) * scaleX,
+      y: previewRect.y + (value.y - drag.bbox.y) * scaleY,
+    });
+    const toPdf = (value: ScreenPoint) => {
+      const [x, y] = viewport.convertToPdfPoint(value.x, value.y) as [number, number];
+      return { x, y };
+    };
+    onSignatureQuadChange({
+      p0: toPdf(mapPoint(drag.screenQuad.p0)),
+      p1: toPdf(mapPoint(drag.screenQuad.p1)),
+      p2: toPdf(mapPoint(drag.screenQuad.p2)),
+      p3: toPdf(mapPoint(drag.screenQuad.p3)),
+    });
   };
 
   const draftForPage = textDraft?.pageIndex === pageIndex ? textDraft : null;
   const textStyle = draftForPage ? quadToCssStyle(draftForPage.quad, viewport) : null;
+  const previewContentStyle = previewQuad ? quadToCssStyle(previewQuad, viewport) : null;
+  const selectedBox = boxAnnotations.find((annotation) => annotation.id === selectedId);
+  const selectedBoxScreen = selectedBox
+    ? quadToScreen(liveEdit?.id === selectedBox.id ? liveEdit.quad : selectedBox.quad, viewport)
+    : null;
+  const selectedBoxBounds = selectedBoxScreen
+    ? (() => {
+        const xs = [selectedBoxScreen.p0.x, selectedBoxScreen.p1.x, selectedBoxScreen.p2.x, selectedBoxScreen.p3.x];
+        const ys = [selectedBoxScreen.p0.y, selectedBoxScreen.p1.y, selectedBoxScreen.p2.y, selectedBoxScreen.p3.y];
+        return {
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
+        };
+      })()
+    : null;
 
   return (
     <div
@@ -466,11 +675,25 @@ export function PageView({
       data-page-index={pageIndex}
       aria-label={`Page ${pageIndex + 1} of ${session.pageCount}`}
     >
-      <div className="page-surface" ref={surfaceRef} onPointerDown={handleSurfacePointerDown}>
+      <div
+        className="page-surface"
+        ref={surfaceRef}
+        onPointerDown={handleSurfacePointerDown}
+        onPointerMove={updateAnnotationDrag}
+        onPointerUp={finishAnnotationDrag}
+        onPointerCancel={finishAnnotationDrag}
+      >
         {!hasPainted && !renderError ? <div className="page-placeholder">Page {pageIndex + 1}</div> : null}
         <canvas ref={canvasRef} className="page-canvas" aria-hidden="true" />
         <div ref={pdfAnnotationsRef} className="pdf-annotation-host" aria-label="Existing PDF annotations and form appearances" />
         <div ref={textLayerRef} className="page-text-layer" />
+        {searchAnchor ? (
+          <span
+            className="search-anchor"
+            style={{ left: `${searchAnchor.x}px`, top: `${searchAnchor.y}px` }}
+            aria-hidden="true"
+          />
+        ) : null}
         <div className="annotation-layer">
           <svg
             className="annotation-svg"
@@ -541,7 +764,8 @@ export function PageView({
             })}
           </svg>
           {boxAnnotations.map((annotation) => {
-            const style = quadToCssStyle(annotation.quad, viewport);
+            const displayQuad = liveEdit?.id === annotation.id ? liveEdit.quad : annotation.quad;
+            const style = quadToCssStyle(displayQuad, viewport);
             if (annotation.kind === 'signature') {
               return (
                 <div key={annotation.id} className="annotation-dom" style={style}>
@@ -593,6 +817,19 @@ export function PageView({
           />
         ) : null}
 
+        {selectedBox && selectedBoxBounds && tool === 'select' ? (
+          <span
+            className="annotation-resize-handle"
+            style={{
+              left: selectedBoxBounds.x + selectedBoxBounds.width - 9,
+              top: selectedBoxBounds.y + selectedBoxBounds.height - 9,
+            }}
+            onPointerDown={(event) => beginAnnotationDrag(event, selectedBox, 'resize')}
+            role="presentation"
+            aria-label="Resize annotation"
+          />
+        ) : null}
+
         {signaturePreview && signaturePreview.pageIndex === pageIndex && previewRect ? (
           <div
             className="signature-preview"
@@ -610,7 +847,20 @@ export function PageView({
             aria-label="Signature preview. Drag to move, use the corner handle to resize."
           >
             <span className="signature-badge">{signaturePreview.targetLabel ?? 'Move signature'}</span>
-            <img src={signaturePreview.dataUrl} alt="Signature preview, not yet added" draggable={false} />
+            {previewContentStyle ? (
+              <span
+                className="signature-preview-visual"
+                style={{
+                  left: previewContentStyle.left - previewRect.x,
+                  top: previewContentStyle.top - previewRect.y,
+                  width: previewContentStyle.width,
+                  height: previewContentStyle.height,
+                  transform: previewContentStyle.transform,
+                }}
+              >
+                <img src={signaturePreview.dataUrl} alt="Signature preview, not yet added" draggable={false} />
+              </span>
+            ) : null}
             <span
               className="signature-handle"
               onPointerDown={(event) => startPreviewDrag(event, 'resize')}

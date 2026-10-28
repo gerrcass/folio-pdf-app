@@ -17,7 +17,7 @@ execFileSync(process.execPath, [path.join(root, 'scripts', 'build.mjs'), 'web'],
 
 const server = await preview({
   root,
-  preview: { port: 4173, strictPort: true, host: '127.0.0.1' },
+  preview: { port: 4280, strictPort: true, host: '127.0.0.1' },
 });
-console.log(`[folio] e2e preview at ${server.resolvedUrls?.local?.[0] ?? 'http://127.0.0.1:4173/'}`);
+console.log(`[folio] e2e preview at ${server.resolvedUrls?.local?.[0] ?? 'http://127.0.0.1:4280/'}`);
 await new Promise(() => {});

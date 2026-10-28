@@ -128,4 +128,4 @@ The shared language of the product. This file contains definitions, not implemen
 
 **Installation Folder** — the directory containing the installed Folio executable, shown in About Folio.
 
-**Eviction** — removal of the least-recently-opened Recent Document when the Library exceeds its count or byte budget. Eviction removes cached bytes and thumbnail; it never deletes the user's original file.
+**Eviction** — removal of the least-recently-opened Recent Document's cached bytes and thumbnail when the Library exceeds its count or byte budget. Annotations remain keyed to the Document Fingerprint and return if the file is reopened; eviction never deletes the user's original file. Only an explicit remove deletes annotation data.

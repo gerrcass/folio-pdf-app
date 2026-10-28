@@ -21,7 +21,7 @@ Open a PDF, read it without friction, find the line that matters, mark it, sign 
 - **Search that stays responsive.** Background text indexing over a 300-page fixture completes in roughly 2.5 seconds on the reference machine; the input can still be typed in while pages are indexed. Results stream in with page-grouped snippets and active-match highlighting.
 - **Annotations that survive.** Multi-color highlights, freehand ink, colored text notes, undo/redo, a selection inspector, and an annotation panel. Geometry is stored in PDF user space, so zoom, Viewer Rotation, Page Rotation, and nonzero CropBox origins do not move your marks.
 - **Signatures with a deliberate pause.** Draw, type, upload, or camera-capture a signature. Folio detects unsigned signature widgets and likely labels on the current page, shows a movable/resizable preview, and adds nothing until you click **Approve and add signature**. Signatures export as transparent native PDF `/Stamp` annotations.
-- **Native export.** `Highlight`, `Ink`, `FreeText`, and `Stamp` annotations are written with appearance streams. Text stays selectable. Repeated exports do not accumulate annotations.
+- **Native export.** `Highlight`, `Ink`, `FreeText`, and `Stamp` annotations are written with appearance streams. Text stays selectable. Repeated exports are byte-identical for the same source state and do not accumulate annotations.
 - **Reading memory.** Page, scroll position, zoom, rotation, sidebar, spread mode, window bounds, interface theme, and Night Reading survive restarts. An explicitly opened file always wins over automatic restoration; returning to the Library prevents the next auto-open.
 - **A secure Electron shell.** Context isolation, sandboxing, no renderer Node integration, a narrow preload bridge, an `app://folio` production origin, validated IPC, navigation denial, and video-only camera permission scoped to the trusted window.
 - **Honest editions.** Installed, Portable, Development, and Browser editions identify themselves; only the Installed Edition can self-update, and only when a distributor configures an update feed.
@@ -72,7 +72,7 @@ npm run screenshots
 - Night Reading is a page-only treatment, independent of the interface theme, persisted immediately, and restored independently.
 - The custom Windows title bar is frameless with working minimize, maximize/restore, and close controls. Window bounds are validated against the available monitors.
 - The reader renders only near-viewport pages through an intersection observer and a two-slot render queue, caps canvas DPR at 2, caches a bounded set of canvases, cancels stale work on scroll/document/rotation changes, and defers sharp zoom redraws while updating layout immediately.
-- A single IndexedDB connection is shared by the library, sessions, annotations, and remembered signatures. The cached library is bounded to 24 documents / 200 MB, evicting the least-recently-opened entries except the open document.
+- A single IndexedDB connection is shared by the library, sessions, annotations, and remembered signatures. The cached library is bounded to 24 documents / 200 MB, evicting the least-recently-opened cached bytes except the open document. Annotation records are keyed by fingerprint and survive cache eviction; only an explicit Remove from Library deletes them.
 - PDFs, page images, signatures, and camera frames never leave the device. There are no runtime network requests required for reading, annotating, signing, exporting, or printing.
 
 Further detail: [spec](docs/specs/folio-1.0.md) · [ADRs](docs/adr/) · [design grill](docs/design/grill-session.md) · [agent brief](AGENTS.md) · [coding standards](CODING_STANDARDS.md) · [performance baseline](docs/performance.md).
@@ -116,7 +116,7 @@ The measured 300-page baseline is in [`docs/performance.md`](docs/performance.md
 
 ## Out of scope
 
-OCR and scanned-field detection beyond conservative text-label heuristics; cryptographic signing or certificate validation; cloud sync/accounts/collaboration; redaction; form filling beyond signature stamps; editing pre-existing third-party annotations; plugins; EPUB/Office; text reflow; macOS/Linux installers; and publishing an update feed. The full boundary is in the [spec](docs/specs/folio-1.0.md).
+OCR and scanned-field detection beyond conservative text-label heuristics; cryptographic signing or certificate validation; cloud sync/accounts/collaboration; redaction; form filling beyond signature stamps; editing pre-existing third-party annotations; plugins; EPUB/Office; text reflow; macOS/Linux installers; true OS fullscreen (Focus mode hides the chrome); and publishing an update feed. Text-note export embeds DejaVu Sans, which covers Latin extended, Greek, Cyrillic, and monochrome emoji, but not CJK glyphs; CJK notes still display in the app. The full boundary is in the [spec](docs/specs/folio-1.0.md).
 
 ## License
 

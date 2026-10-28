@@ -32,6 +32,8 @@ export default tseslint.config(
       // project deliberately uses effect-driven state for PDF lifecycle work.
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/refs': 'off',
+      'react-hooks/immutability': 'off',
+      'react-hooks/purity': 'off',
       'react-hooks/exhaustive-deps': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [

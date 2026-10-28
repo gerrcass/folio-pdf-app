@@ -22,7 +22,7 @@ Reviewers enforce these. Implementation agents should still keep them in view.
 - Loading, empty, error, and disabled states are designed, not incidental. Disabled controls explain why where the reason is not obvious.
 - User-facing copy uses the glossary. “Signature” is visual unless explicitly qualified; never “secure signature”, “verified”, or “legally binding”.
 - Destructive actions confirm, and the confirmation names the exact object and consequence.
-- Touch and pointer targets are at least 32×32 CSS px.
+- Touch and pointer targets meet WCAG 2.5.8's 24×24 CSS px minimum; primary controls should be 32×32 or larger.
 - Layouts remain usable at 720×520 (desktop minimum) and 380px viewport width (browser).
 - Motion is short and restrained; respect `prefers-reduced-motion`.
 

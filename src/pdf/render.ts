@@ -123,6 +123,7 @@ export async function renderThumbnail(page: PDFPageProxy, targetWidth = 260): Pr
 }
 
 const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
+const IMAGE_CACHE_LIMIT = 40;
 
 export function loadAnnotationImage(dataUrl: string): Promise<HTMLImageElement | null> {
   const cached = imageCache.get(dataUrl);
@@ -134,6 +135,11 @@ export function loadAnnotationImage(dataUrl: string): Promise<HTMLImageElement |
     image.src = dataUrl;
   });
   imageCache.set(dataUrl, promise);
+  while (imageCache.size > IMAGE_CACHE_LIMIT) {
+    const oldest = imageCache.keys().next().value;
+    if (oldest === undefined) break;
+    imageCache.delete(oldest);
+  }
   return promise;
 }
 

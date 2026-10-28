@@ -19,6 +19,7 @@
 }
 
 .titlebar-brand {
+  -webkit-app-region: no-drag;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -119,8 +120,8 @@
 
 /* Buttons */
 .icon-button {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-sm);
@@ -145,8 +146,8 @@
 }
 
 .icon-button.small {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 5px;
 }
 

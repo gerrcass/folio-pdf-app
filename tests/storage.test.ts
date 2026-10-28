@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  MAX_LIBRARY_BYTES,
   closeDatabase,
   deleteDatabase,
   loadAnnotations,
@@ -60,7 +61,7 @@ describe('local library', () => {
     expect(await loadDocumentBytes('doc-25')).not.toBeNull();
   });
 
-  it('keeps annotations and removes the matching session with a document', async () => {
+  it('deletes cached annotation data only when the user removes a document', async () => {
     const document = documentRecord(1);
     await saveRecentDocument(document, new ArrayBuffer(8));
     await saveAnnotations(document.id, [
@@ -90,6 +91,45 @@ describe('local library', () => {
     expect(await loadDocumentBytes(document.id)).toBeNull();
     expect(await loadAnnotations(document.id)).toHaveLength(0);
     expect(await loadSession()).toBeNull();
+  });
+
+
+  it('evicts cached bytes without destroying annotations and protects the open document', async () => {
+    const protectedDocument = documentRecord(1);
+    const evictedDocument = documentRecord(2);
+    await saveRecentDocument(protectedDocument, new ArrayBuffer(8));
+    await saveRecentDocument(evictedDocument, new ArrayBuffer(8));
+    await saveAnnotations(evictedDocument.id, [
+      {
+        id: 'kept',
+        kind: 'highlight',
+        pageIndex: 0,
+        color: 'amber',
+        quads: [
+          {
+            p0: { x: 1, y: 1 },
+            p1: { x: 2, y: 1 },
+            p2: { x: 2, y: 2 },
+            p3: { x: 1, y: 2 },
+          },
+        ],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    for (let index = 3; index <= 30; index += 1) {
+      await saveRecentDocument(documentRecord(index), new ArrayBuffer(8), {
+        protectedDocumentIds: [protectedDocument.id],
+      });
+    }
+    expect(await listRecentDocuments()).not.toContainEqual(expect.objectContaining({ id: 'doc-2' }));
+    expect(await loadAnnotations('doc-2')).toHaveLength(1);
+
+    // The open document is never eligible for byte eviction.
+    await saveRecentDocument(documentRecord(31), new ArrayBuffer(MAX_LIBRARY_BYTES), {
+      protectedDocumentIds: [protectedDocument.id],
+    });
+    expect(await loadDocumentBytes(protectedDocument.id)).not.toBeNull();
   });
 
   it('marks the last session as non-restorable without losing its position', async () => {

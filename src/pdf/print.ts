@@ -6,6 +6,7 @@ export interface PrintOptions {
   pageIndices: number[];
   annotations: Annotation[];
   includeAnnotations: boolean;
+  viewerRotation?: number;
   onProgress?: (completed: number, total: number) => void;
   signal?: AbortSignal;
 }
@@ -19,17 +20,43 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#39;');
 }
 
+export interface PrintImage {
+  dataUrl: string;
+  widthPoints: number;
+  heightPoints: number;
+}
+
+export function buildPrintHtml(title: string, images: PrintImage[]): string {
+  const body = images
+    .map(
+      (image) =>
+        `<figure><img src="${image.dataUrl}" style="width:${(image.widthPoints / 72).toFixed(
+          3,
+        )}in;height:auto" alt="" /></figure>`,
+    )
+    .join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
+    @page { size: auto; margin: 0; }
+    html, body { margin: 0; background: #fff; }
+    figure { margin: 0; page-break-after: always; break-after: page; display: grid; place-items: center; min-height: 100vh; }
+    figure:last-child { page-break-after: auto; break-after: auto; }
+    img { display: block; max-width: 100%; max-height: 100vh; object-fit: contain; }
+  </style></head><body>${body}</body></html>`;
+}
+
 export async function printDocument(
   session: PdfDocumentSession,
   options: PrintOptions,
 ): Promise<number> {
-  const images: Array<{ dataUrl: string; width: number; height: number }> = [];
+  const images: Array<{ dataUrl: string; widthPoints: number; heightPoints: number }> = [];
   const total = options.pageIndices.length;
   for (let index = 0; index < total; index += 1) {
     if (options.signal?.aborted) throw new DOMException('Printing was cancelled.', 'AbortError');
     const pageIndex = options.pageIndices[index];
     const page = await session.getPage(pageIndex);
-    const viewport = page.getViewport({ scale: 2, rotation: page.rotate });
+    const rotation = page.rotate + (options.viewerRotation ?? 0);
+    const viewport = page.getViewport({ scale: 2, rotation });
+    const cssViewport = page.getViewport({ scale: 1, rotation });
     const canvas = document.createElement('canvas');
     const rendered = await renderPageToCanvas(page, viewport, canvas, 1.5, options.signal);
     if (!rendered) throw new DOMException('Printing was cancelled.', 'AbortError');
@@ -42,30 +69,14 @@ export async function printDocument(
     }
     images.push({
       dataUrl: canvas.toDataURL('image/jpeg', 0.92),
-      width: viewport.width,
-      height: viewport.height,
+      widthPoints: cssViewport.width,
+      heightPoints: cssViewport.height,
     });
     options.onProgress?.(index + 1, total);
   }
 
   if (options.signal?.aborted) throw new DOMException('Printing was cancelled.', 'AbortError');
-  const body = images
-    .map(
-      (image) =>
-        `<figure><img src="${image.dataUrl}" style="width:${(image.width / 72).toFixed(3)}in;height:${(
-          image.height / 72
-        ).toFixed(3)}in" alt="" /></figure>`,
-    )
-    .join('');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
-    session.title,
-  )}</title><style>
-    @page { margin: 0; }
-    html, body { margin: 0; background: #fff; }
-    figure { margin: 0; page-break-after: always; break-after: page; display: grid; place-items: center; }
-    figure:last-child { page-break-after: auto; break-after: auto; }
-    img { display: block; max-width: 100%; }
-  </style></head><body>${body}</body></html>`;
+  const html = buildPrintHtml(session.title, images);
 
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
