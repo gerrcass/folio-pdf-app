@@ -110,9 +110,9 @@ The measured 300-page baseline is in [`docs/performance.md`](docs/performance.md
 | --- | --- |
 | <img src="docs/screenshots/library.png" alt="Folio local library with a Continue reading strip and a recent PDF" width="100%"> | <img src="docs/screenshots/search.png" alt="Folio search results with a highlighted current match" width="100%"> |
 
-| Signature flow |
-| --- |
-| <img src="docs/screenshots/signature-dialog.png" alt="Folio signature dialog with typed signature, local-storage warning, and approval handoff" width="100%"> |
+| Signature flow | Native export |
+| --- | --- |
+| <img src="docs/screenshots/signature-dialog.png" alt="Folio signature dialog with typed signature, local-storage warning, and approval handoff" width="100%"> | <img src="docs/screenshots/exported-page.png" alt="Exported PDF rendered in an independent engine, showing highlight, ink, text note, and transparent signature stamp" width="100%"> |
 
 ## Out of scope
 
